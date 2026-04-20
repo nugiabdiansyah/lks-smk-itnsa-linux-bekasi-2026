@@ -53,7 +53,7 @@ hubungan antar komponen, dan catatan implementasi yang perlu diketahui panitia.
 Folder sistem penilaian otomatis berbasis Ansible. Isinya membaca kondisi VM peserta,
 memberi skor per bagian soal, lalu menulis CSV yang bisa diimport ke grading sheet.
 
-Detail file per file ada di [autograding/README.md](/Users/nugiabdiansyah/Documents/Develop/lks-smk-itnsa-linux-bekasi-2026/autograding/README.md).
+Detail file per file ada di [autograding/README.md](autograding/README.md).
 
 ### `evidance/`
 
@@ -61,14 +61,14 @@ Folder playbook pengambilan evidence dari semua VM peserta sebelum instance dima
 atau dibersihkan. Folder ini memang bernama `evidance`, tetapi playbook di dalamnya
 membuat output ke subfolder `evidence/`.
 
-Detail file per file ada di [evidance/README.md](/Users/nugiabdiansyah/Documents/Develop/lks-smk-itnsa-linux-bekasi-2026/evidance/README.md).
+Detail file per file ada di [evidance/README.md](evidance/README.md).
 
 ### `terraform/`
 
 Folder provisioning infrastruktur lomba di Linode. Konfigurasi default membuat 4 VM
 per peserta untuk total 8 peserta.
 
-Detail file per file ada di [terraform/README.md](/Users/nugiabdiansyah/Documents/Develop/lks-smk-itnsa-linux-bekasi-2026/terraform/README.md).
+Detail file per file ada di [terraform/README.md](terraform/README.md).
 
 ## Hubungan Antar Komponen
 
