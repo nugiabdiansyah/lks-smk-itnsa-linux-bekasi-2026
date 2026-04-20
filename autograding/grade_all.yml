@@ -1,0 +1,1107 @@
+---
+# =============================================================================
+# LKS BEKASI 2026 - LINUX ENVIRONMENT AUTOGRADING PLAYBOOK
+# Skema: 0 (tidak ada usaha) / 25% (install saja) / 50% (partial) / 100% (lengkap)
+# Jalankan : ansible-playbook grade_all.yml
+# Output   : results/grading_results.csv
+# =============================================================================
+
+# =============================================================================
+# PART 1.1 - General Config & CA (8 Poin)
+# =============================================================================
+- name: "Grade P1.1 - General Config & CA"
+  hosts: all
+  gather_facts: no
+  ignore_unreachable: yes
+  ignore_errors: yes
+
+  tasks:
+    # --- General Config ---
+    - name: "P1.1 | hostname"
+      command: hostname -f
+      register: r_hostname
+      changed_when: false
+      failed_when: false
+
+    - name: "P1.1 | /etc/hosts entries"
+      shell: grep -c "itnsa.id" /etc/hosts || echo 0
+      register: r_hosts
+      changed_when: false
+      failed_when: false
+
+    - name: "P1.1 | NTP service active"
+      shell: >
+        systemctl is-active chrony 2>/dev/null ||
+        systemctl is-active chronyd 2>/dev/null ||
+        systemctl is-active systemd-timesyncd 2>/dev/null ||
+        echo inactive
+      register: r_ntp_svc
+      changed_when: false
+      failed_when: false
+
+    - name: "P1.1 | NTP installed at all"
+      shell: dpkg -l chrony ntp systemd-timesyncd 2>/dev/null | grep -c "^ii" || echo 0
+      register: r_ntp_installed
+      changed_when: false
+      failed_when: false
+
+    - name: "P1.1 | NTP server id.pool.ntp.org"
+      shell: grep -r "id.pool.ntp.org" /etc/chrony* /etc/ntp.conf /etc/systemd/timesyncd.conf 2>/dev/null | wc -l
+      register: r_ntp_srv
+      changed_when: false
+      failed_when: false
+
+    - name: "P1.1 | timezone"
+      command: timedatectl show -p Timezone --value
+      register: r_tz
+      changed_when: false
+      failed_when: false
+
+    # --- CA ---
+    - name: "P1.1 | CA dir exists"
+      stat:
+        path: /etc/ssl/itnsa_ca
+      register: r_ca_dir
+      failed_when: false
+
+    - name: "P1.1 | any cert in CA dir"
+      find:
+        paths: /etc/ssl/itnsa_ca
+        patterns: "*.crt,*.pem,*.key"
+      register: r_ca_any
+      failed_when: false
+
+    - name: "P1.1 | CA subject Bekasi LKS 2026"
+      shell: |
+        find /etc/ssl/itnsa_ca -name "*.crt" -o -name "*.pem" 2>/dev/null | \
+        xargs -I{} openssl x509 -in {} -noout -subject 2>/dev/null | \
+        grep -i "Bekasi LKS 2026" | wc -l
+      register: r_ca_subj
+      changed_when: false
+      failed_when: false
+
+    - name: "P1.1 | wildcard cert *.itnsa.id"
+      shell: |
+        find /etc/ssl/itnsa_ca -name "*.crt" -o -name "*.pem" 2>/dev/null | \
+        xargs -I{} openssl x509 -in {} -noout -text 2>/dev/null | \
+        grep -i "\*.itnsa.id" | wc -l
+      register: r_wildcard
+      changed_when: false
+      failed_when: false
+
+    - name: "P1.1 | mail cert mail.itnsa.id"
+      shell: |
+        find /etc/ssl/itnsa_ca -name "*.crt" -o -name "*.pem" 2>/dev/null | \
+        xargs -I{} openssl x509 -in {} -noout -text 2>/dev/null | \
+        grep -i "mail.itnsa.id" | wc -l
+      register: r_mail_cert
+      changed_when: false
+      failed_when: false
+
+    - name: "P1.1 | Tiered score — General (max 4p)"
+      set_fact:
+        # Hostname + hosts: 0 / 1 / 2
+        _s_hostname: >-
+          {{ 2 if ('itnsa.id' in (r_hostname.stdout | default(''))) else 0 }}
+        _s_hosts: >-
+          {{ 2 if ((r_hosts.stdout | default('0') | int) >= 3)
+             else (1 if ((r_hosts.stdout | default('0') | int) >= 1) else 0) }}
+        # NTP: 0 (tidak install) / 1 (install, salah server) / 2 (aktif + id.pool)
+        _s_ntp: >-
+          {{ 2 if ('active' in (r_ntp_svc.stdout | default('')) and (r_ntp_srv.stdout | default('0') | int) >= 1)
+             else (1 if ('active' in (r_ntp_svc.stdout | default('')))
+             else (0 if ((r_ntp_installed.stdout | default('0') | int) == 0) else 0)) }}
+        # Timezone: 0 / 2
+        _s_tz: >-
+          {{ 2 if ('Asia/Jakarta' in (r_tz.stdout | default(''))) else 0 }}
+
+    - name: "P1.1 | Tiered score — CA (max 4p)"
+      set_fact:
+        # CA dir: 0 (tidak ada) / 1 (ada dir + file tapi subject salah) / 2 (subject benar)
+        _s_ca: >-
+          {{ 2 if ((r_ca_subj.stdout | default('0') | int) >= 1)
+             else (1 if (r_ca_dir.stat.exists | default(false) and (r_ca_any.matched | default(0)) > 0)
+             else 0) }}
+        # Certs: 0 (tidak ada) / 1 (hanya 1 cert) / 2 (wildcard + mail keduanya)
+        _s_certs: >-
+          {{ 2 if ((r_wildcard.stdout | default('0') | int) >= 1 and (r_mail_cert.stdout | default('0') | int) >= 1)
+             else (1 if ((r_wildcard.stdout | default('0') | int) >= 1 or (r_mail_cert.stdout | default('0') | int) >= 1)
+             else 0) }}
+
+    - name: "P1.1 | Final score (cap 8)"
+      set_fact:
+        total_p1_1: >-
+          {{ [(_s_hostname | int) + (_s_hosts | int) + (_s_ntp | int) + (_s_tz | int) + (_s_ca | int) + (_s_certs | int), 8] | min }}
+
+# =============================================================================
+# PART 1.2 - Email Server (7 Poin)
+# =============================================================================
+- name: "Grade P1.2 - Email Server"
+  hosts: all
+  gather_facts: no
+  ignore_unreachable: yes
+  ignore_errors: yes
+
+  tasks:
+    - name: "P1.2 | postfix installed"
+      shell: dpkg -l postfix 2>/dev/null | grep -c "^ii" || echo 0
+      register: r_postfix_installed
+      changed_when: false
+      failed_when: false
+
+    - name: "P1.2 | postfix active"
+      shell: systemctl is-active postfix 2>/dev/null || echo inactive
+      register: r_postfix_active
+      changed_when: false
+      failed_when: false
+
+    - name: "P1.2 | postfix inet_interfaces"
+      shell: postconf inet_interfaces 2>/dev/null | grep -ic "all" || echo 0
+      register: r_postfix_ifaces
+      changed_when: false
+      failed_when: false
+
+    - name: "P1.2 | dovecot installed"
+      shell: dpkg -l dovecot-core 2>/dev/null | grep -c "^ii" || echo 0
+      register: r_dovecot_installed
+      changed_when: false
+      failed_when: false
+
+    - name: "P1.2 | dovecot active"
+      shell: systemctl is-active dovecot 2>/dev/null || echo inactive
+      register: r_dovecot_active
+      changed_when: false
+      failed_when: false
+
+    - name: "P1.2 | port 993 listening"
+      shell: ss -tlnp | grep -c ':993' || echo 0
+      register: r_port993
+      changed_when: false
+      failed_when: false
+
+    - name: "P1.2 | port 587 listening"
+      shell: ss -tlnp | grep -c ':587' || echo 0
+      register: r_port587
+      changed_when: false
+      failed_when: false
+
+    - name: "P1.2 | dovecot TLS configured"
+      shell: grep -r "ssl_cert\|ssl_key\|ssl = yes" /etc/dovecot/ 2>/dev/null | grep -vc "#" || echo 0
+      register: r_dovecot_tls
+      changed_when: false
+      failed_when: false
+
+    - name: "P1.2 | email_test1 exists"
+      command: id email_test1
+      register: r_user1
+      changed_when: false
+      failed_when: false
+
+    - name: "P1.2 | email_test2 exists"
+      command: id email_test2
+      register: r_user2
+      changed_when: false
+      failed_when: false
+
+    - name: "P1.2 | Tiered scores"
+      set_fact:
+        # Postfix: 0 (tidak install) / 1 (install/aktif tapi ifaces salah) / 2 (aktif + all ifaces)
+        _s_postfix: >-
+          {{ 2 if ('active' in (r_postfix_active.stdout | default('')) and (r_postfix_ifaces.stdout | default('0') | int) >= 1)
+             else (1 if ('active' in (r_postfix_active.stdout | default('')) or (r_postfix_installed.stdout | default('0') | int) >= 1)
+             else 0) }}
+        # Dovecot: 0 (tidak install) / 1 (install/aktif tapi port/TLS belum) / 2 (aktif+993+587+TLS)
+        _s_dovecot: >-
+          {{ 3 if ('active' in (r_dovecot_active.stdout | default('')) and
+                   (r_port993.stdout | default('0') | int) >= 1 and
+                   (r_port587.stdout | default('0') | int) >= 1 and
+                   (r_dovecot_tls.stdout | default('0') | int) >= 1)
+             else (2 if ('active' in (r_dovecot_active.stdout | default('')) and
+                         ((r_port993.stdout | default('0') | int) >= 1 or (r_port587.stdout | default('0') | int) >= 1))
+             else (1 if ((r_dovecot_installed.stdout | default('0') | int) >= 1)
+             else 0)) }}
+        # Users: 0 / 1 (salah satu ada) / 2 (keduanya ada)
+        _s_email_users: >-
+          {{ 2 if ((r_user1.rc | default(1)) == 0 and (r_user2.rc | default(1)) == 0)
+             else (1 if ((r_user1.rc | default(1)) == 0 or (r_user2.rc | default(1)) == 0)
+             else 0) }}
+
+    - name: "P1.2 | Final score (cap 7)"
+      set_fact:
+        total_p1_2: >-
+          {{ [(_s_postfix | int) + (_s_dovecot | int) + (_s_email_users | int), 7] | min }}
+
+# =============================================================================
+# PART 2.1 - MariaDB Database Server (12 Poin)
+# =============================================================================
+- name: "Grade P2.1 - MariaDB"
+  hosts: all
+  gather_facts: no
+  ignore_unreachable: yes
+  ignore_errors: yes
+
+  tasks:
+    - name: "P2.1 | mariadb installed"
+      shell: dpkg -l mariadb-server 2>/dev/null | grep -c "^ii" || echo 0
+      register: r_mariadb_installed
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.1 | mariadb active"
+      shell: systemctl is-active mariadb 2>/dev/null || echo inactive
+      register: r_mariadb_active
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.1 | bind-address not 127.0.0.1"
+      shell: grep -r "bind-address" /etc/mysql/ 2>/dev/null | grep -v "127.0.0.1\|#" | wc -l
+      register: r_bind
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.1 | port 3306 listening"
+      shell: ss -tlnp | grep -c ':3306' || echo 0
+      register: r_port3306
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.1 | app_db exists"
+      shell: mysql -u root -pLksBekasi2026! -e "SHOW DATABASES;" 2>/dev/null | grep -c "app_db" || echo 0
+      register: r_appdb
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.1 | db_admin user exists"
+      shell: mysql -u root -pLksBekasi2026! -e "SELECT user FROM mysql.user WHERE user='db_admin';" 2>/dev/null | grep -c "db_admin" || echo 0
+      register: r_dbadmin
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.1 | anonymous user removed (secure install)"
+      shell: mysql -u root -pLksBekasi2026! -e "SELECT user FROM mysql.user WHERE user='';" 2>/dev/null | grep -c "^$" || echo 1
+      register: r_anon
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.1 | iptables restricts 3306"
+      shell: iptables -L INPUT -n 2>/dev/null | grep -c "3306" || echo 0
+      register: r_fw3306
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.1 | Tiered scores"
+      set_fact:
+        # Install/active: 0 / 1 (install tapi mati) / 2 (aktif) / 3 (aktif + bind-address benar)
+        _s_mariadb_svc: >-
+          {{ 3 if ('active' in (r_mariadb_active.stdout | default('')) and (r_bind.stdout | default('0') | int) >= 1)
+             else (2 if ('active' in (r_mariadb_active.stdout | default('')))
+             else (1 if ((r_mariadb_installed.stdout | default('0') | int) >= 1)
+             else 0)) }}
+        # DB + User: 0 / 1 (salah satu) / 3 (keduanya lengkap + secure)
+        _s_mariadb_db: >-
+          {{ 3 if ((r_appdb.stdout | default('0') | int) >= 1 and
+                   (r_dbadmin.stdout | default('0') | int) >= 1 and
+                   (r_anon.stdout | default('1') | int) == 0)
+             else (2 if ((r_appdb.stdout | default('0') | int) >= 1 and (r_dbadmin.stdout | default('0') | int) >= 1)
+             else (1 if ((r_appdb.stdout | default('0') | int) >= 1 or (r_dbadmin.stdout | default('0') | int) >= 1)
+             else 0)) }}
+        # Firewall 3306: 0 / 3 (ada rule) / +bonus port listening
+        _s_mariadb_fw: >-
+          {{ 3 if ((r_fw3306.stdout | default('0') | int) >= 1 and (r_port3306.stdout | default('0') | int) >= 1)
+             else (2 if ((r_fw3306.stdout | default('0') | int) >= 1)
+             else (1 if ((r_port3306.stdout | default('0') | int) >= 1)
+             else 0)) }}
+
+    - name: "P2.1 | Final score (cap 12)"
+      set_fact:
+        total_p2_1: >-
+          {{ [(_s_mariadb_svc | int) + (_s_mariadb_db | int) + (_s_mariadb_fw | int), 12] | min }}
+
+# =============================================================================
+# PART 2.2 - File Sharing Services (13 Poin)
+# =============================================================================
+- name: "Grade P2.2 - File Sharing"
+  hosts: all
+  gather_facts: no
+  ignore_unreachable: yes
+  ignore_errors: yes
+
+  tasks:
+    - name: "P2.2 | nfs-kernel-server installed"
+      shell: dpkg -l nfs-kernel-server 2>/dev/null | grep -c "^ii" || echo 0
+      register: r_nfs_installed
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.2 | nfs active"
+      shell: systemctl is-active nfs-server nfs-kernel-server 2>/dev/null | grep -c "active" || echo 0
+      register: r_nfs_active
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.2 | /srv/web_data exported"
+      shell: grep -c "web_data" /etc/exports 2>/dev/null || echo 0
+      register: r_nfs_export
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.2 | NFS options rw,sync,no_root_squash"
+      shell: grep "web_data" /etc/exports 2>/dev/null | grep "rw" | grep "sync" | grep -c "no_root_squash" || echo 0
+      register: r_nfs_opts
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.2 | samba installed"
+      shell: dpkg -l samba 2>/dev/null | grep -c "^ii" || echo 0
+      register: r_smb_installed
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.2 | smbd active"
+      shell: systemctl is-active smbd 2>/dev/null || echo inactive
+      register: r_smb_active
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.2 | samba [public_data] share"
+      shell: grep -ic "\[public_data\]" /etc/samba/smb.conf 2>/dev/null || echo 0
+      register: r_smb_share
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.2 | samba path /srv/data_public"
+      shell: grep -A5 "\[public_data\]" /etc/samba/smb.conf 2>/dev/null | grep -c "data_public" || echo 0
+      register: r_smb_path
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.2 | vsftpd installed"
+      shell: dpkg -l vsftpd 2>/dev/null | grep -c "^ii" || echo 0
+      register: r_ftp_installed
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.2 | vsftpd active"
+      shell: systemctl is-active vsftpd 2>/dev/null || echo inactive
+      register: r_ftp_active
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.2 | vsftpd chroot_local_user=YES"
+      shell: grep -c "^chroot_local_user=YES" /etc/vsftpd.conf 2>/dev/null || echo 0
+      register: r_ftp_chroot
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.2 | file_share user exists"
+      command: id file_share
+      register: r_fileshare_user
+      changed_when: false
+      failed_when: false
+
+    - name: "P2.2 | Tiered scores"
+      set_fact:
+        # NFS: 0 / 1 (install tapi tidak dikonfigurasi) / 2 (aktif+export) / 4 (lengkap dengan opsi)
+        _s_nfs: >-
+          {{ 4 if ((r_nfs_active.stdout | default('0') | int) >= 1 and
+                   (r_nfs_export.stdout | default('0') | int) >= 1 and
+                   (r_nfs_opts.stdout | default('0') | int) >= 1)
+             else (3 if ((r_nfs_active.stdout | default('0') | int) >= 1 and (r_nfs_export.stdout | default('0') | int) >= 1)
+             else (2 if ((r_nfs_active.stdout | default('0') | int) >= 1)
+             else (1 if ((r_nfs_installed.stdout | default('0') | int) >= 1)
+             else 0))) }}
+        # Samba: 0 / 1 (install) / 2 (aktif) / 4 (share + path benar)
+        _s_samba: >-
+          {{ 4 if ('active' in (r_smb_active.stdout | default('')) and
+                   (r_smb_share.stdout | default('0') | int) >= 1 and
+                   (r_smb_path.stdout | default('0') | int) >= 1)
+             else (3 if ('active' in (r_smb_active.stdout | default('')) and (r_smb_share.stdout | default('0') | int) >= 1)
+             else (2 if ('active' in (r_smb_active.stdout | default('')))
+             else (1 if ((r_smb_installed.stdout | default('0') | int) >= 1)
+             else 0))) }}
+        # FTP: 0 / 1 (install) / 2 (aktif) / 3 (aktif + chroot + user)
+        _s_ftp: >-
+          {{ 3 if ('active' in (r_ftp_active.stdout | default('')) and
+                   (r_ftp_chroot.stdout | default('0') | int) >= 1 and
+                   (r_fileshare_user.rc | default(1)) == 0)
+             else (2 if ('active' in (r_ftp_active.stdout | default('')) and
+                         (r_ftp_chroot.stdout | default('0') | int) >= 1)
+             else (1 if ('active' in (r_ftp_active.stdout | default('')) or
+                         (r_ftp_installed.stdout | default('0') | int) >= 1)
+             else 0)) }}
+
+    - name: "P2.2 | Final score (cap 13)"
+      set_fact:
+        total_p2_2: >-
+          {{ [(_s_nfs | int) + (_s_samba | int) + (_s_ftp | int) + (1 if (r_fileshare_user.rc | default(1)) == 0 else 0), 13] | min }}
+
+# =============================================================================
+# PART 3.1 - DNS Primary & Slave (12 Poin)
+# =============================================================================
+- name: "Grade P3.1 - DNS"
+  hosts: all
+  gather_facts: no
+  ignore_unreachable: yes
+  ignore_errors: yes
+
+  tasks:
+    - name: "P3.1 | bind9 installed"
+      shell: dpkg -l bind9 2>/dev/null | grep -c "^ii" || echo 0
+      register: r_bind_installed
+      changed_when: false
+      failed_when: false
+
+    - name: "P3.1 | named/bind9 active"
+      shell: systemctl is-active named bind9 2>/dev/null | grep -c "active" || echo 0
+      register: r_bind_active
+      changed_when: false
+      failed_when: false
+
+    - name: "P3.1 | zone file at /var/lib/bind/db.itnsa.id"
+      stat:
+        path: /var/lib/bind/db.itnsa.id
+      register: r_zone_file
+      failed_when: false
+
+    - name: "P3.1 | any zone file for itnsa.id"
+      shell: find /etc/bind /var/lib/bind /var/cache/bind -name "*itnsa*" 2>/dev/null | wc -l
+      register: r_zone_any
+      changed_when: false
+      failed_when: false
+
+    - name: "P3.1 | allow-transfer configured"
+      shell: grep -r "allow-transfer" /etc/bind/ /etc/named* 2>/dev/null | grep -vc "#" || echo 0
+      register: r_allow_xfr
+      changed_when: false
+      failed_when: false
+
+    - name: "P3.1 | type master/primary"
+      shell: grep -rc "type master\|type primary" /etc/bind/ /etc/named* 2>/dev/null | grep -vc ":0" | wc -l || echo 0
+      register: r_master
+      changed_when: false
+      failed_when: false
+
+    - name: "P3.1 | type slave/secondary"
+      shell: grep -rc "type slave\|type secondary" /etc/bind/ /etc/named* 2>/dev/null | grep -vc ":0" | wc -l || echo 0
+      register: r_slave
+      changed_when: false
+      failed_when: false
+
+    - name: "P3.1 | DNS query resolves itnsa.id"
+      shell: dig @127.0.0.1 itnsa.id SOA +short 2>/dev/null | wc -l
+      register: r_dns_query
+      changed_when: false
+      failed_when: false
+
+    - name: "P3.1 | Tiered scores"
+      set_fact:
+        # Service: 0 / 2 (install) / 4 (aktif)
+        _s_bind_svc: >-
+          {{ 4 if ((r_bind_active.stdout | default('0') | int) >= 1)
+             else (2 if ((r_bind_installed.stdout | default('0') | int) >= 1)
+             else 0) }}
+        # Zone file: 0 / 1 (ada tapi path salah) / 2 (path benar /var/lib/bind)
+        _s_zone: >-
+          {{ 2 if (r_zone_file.stat.exists | default(false))
+             else (1 if ((r_zone_any.stdout | default('0') | int) >= 1)
+             else 0) }}
+        # Master config: 0 / 1 (ada konfigurasi) / 2 (master + allow-transfer)
+        _s_master: >-
+          {{ 2 if ((r_master.stdout | default('0') | int) >= 1 and (r_allow_xfr.stdout | default('0') | int) >= 1)
+             else (1 if ((r_master.stdout | default('0') | int) >= 1)
+             else 0) }}
+        # Slave: 0 / 2 (terkonfigurasi)
+        _s_slave: >-
+          {{ 2 if ((r_slave.stdout | default('0') | int) >= 1)
+             else 0 }}
+        # Query berhasil: 0 / 2
+        _s_query: >-
+          {{ 2 if ((r_dns_query.stdout | default('0') | int) >= 1)
+             else 0 }}
+
+    - name: "P3.1 | Final score (cap 12)"
+      set_fact:
+        total_p3_1: >-
+          {{ [(_s_bind_svc | int) + (_s_zone | int) + (_s_master | int) + (_s_slave | int) + (_s_query | int), 12] | min }}
+
+# =============================================================================
+# PART 3.2 - Web Services & Database Cluster (13 Poin)
+# =============================================================================
+- name: "Grade P3.2 - Web Services"
+  hosts: all
+  gather_facts: no
+  ignore_unreachable: yes
+  ignore_errors: yes
+
+  tasks:
+    - name: "P3.2 | nginx installed"
+      shell: dpkg -l nginx 2>/dev/null | grep -c "^ii" || echo 0
+      register: r_nginx_installed
+      changed_when: false
+      failed_when: false
+
+    - name: "P3.2 | nginx active"
+      shell: systemctl is-active nginx 2>/dev/null || echo inactive
+      register: r_nginx_active
+      changed_when: false
+      failed_when: false
+
+    - name: "P3.2 | fstab NFS entry"
+      shell: grep -c "nfs" /etc/fstab 2>/dev/null || echo 0
+      register: r_fstab_nfs
+      changed_when: false
+      failed_when: false
+
+    - name: "P3.2 | fstab hard,intr options"
+      shell: grep "nfs" /etc/fstab 2>/dev/null | grep "hard" | grep -c "intr" || echo 0
+      register: r_fstab_opts
+      changed_when: false
+      failed_when: false
+
+    - name: "P3.2 | /var/www/website mounted"
+      shell: mountpoint -q /var/www/website 2>/dev/null && echo mounted || echo not_mounted
+      register: r_mounted
+      changed_when: false
+      failed_when: false
+
+    - name: "P3.2 | nginx vhost file for itnsa.id"
+      shell: find /etc/nginx/sites-available /etc/nginx/conf.d -name "*itnsa*" 2>/dev/null | wc -l
+      register: r_vhost_file
+      changed_when: false
+      failed_when: false
+
+    - name: "P3.2 | nginx vhost listens 443"
+      shell: grep -r "listen.*443" /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | wc -l
+      register: r_nginx_ssl
+      changed_when: false
+      failed_when: false
+
+    - name: "P3.2 | wp-config.php exists"
+      shell: find /var/www -name "wp-config.php" 2>/dev/null | wc -l
+      register: r_wp_config
+      changed_when: false
+      failed_when: false
+
+    - name: "P3.2 | wp-config references app_db on nfs"
+      shell: grep -l "app_db" $(find /var/www -name "wp-config.php" 2>/dev/null) 2>/dev/null | wc -l
+      register: r_wp_db
+      changed_when: false
+      failed_when: false
+
+    - name: "P3.2 | Tiered scores"
+      set_fact:
+        # Nginx: 0 / 1 (install) / 2 (aktif) / 3 (aktif + vhost itnsa + 443)
+        _s_nginx: >-
+          {{ 3 if ('active' in (r_nginx_active.stdout | default('')) and
+                   (r_vhost_file.stdout | default('0') | int) >= 1 and
+                   (r_nginx_ssl.stdout | default('0') | int) >= 1)
+             else (2 if ('active' in (r_nginx_active.stdout | default('')) and (r_vhost_file.stdout | default('0') | int) >= 1)
+             else (1 if ('active' in (r_nginx_active.stdout | default('')) or
+                         (r_nginx_installed.stdout | default('0') | int) >= 1)
+             else 0)) }}
+        # NFS Mount: 0 / 1 (ada di fstab) / 2 (fstab + opsi) / 3 (fstab + opsi + benar-benar mount)
+        _s_mount: >-
+          {{ 3 if ((r_fstab_nfs.stdout | default('0') | int) >= 1 and
+                   (r_fstab_opts.stdout | default('0') | int) >= 1 and
+                   'mounted' in (r_mounted.stdout | default('')))
+             else (2 if ((r_fstab_nfs.stdout | default('0') | int) >= 1 and (r_fstab_opts.stdout | default('0') | int) >= 1)
+             else (1 if ((r_fstab_nfs.stdout | default('0') | int) >= 1)
+             else 0)) }}
+        # WordPress: 0 / 2 (wp-config ada tapi DB belum) / 4 (wp-config + app_db + nfs)
+        _s_wordpress: >-
+          {{ 4 if ((r_wp_config.stdout | default('0') | int) >= 1 and (r_wp_db.stdout | default('0') | int) >= 1)
+             else (2 if ((r_wp_config.stdout | default('0') | int) >= 1)
+             else 0) }}
+
+    - name: "P3.2 | Final score (cap 13)"
+      set_fact:
+        total_p3_2: >-
+          {{ [(_s_nginx | int) + (_s_mount | int) + (_s_wordpress | int), 13] | min }}
+
+# =============================================================================
+# PART 3.3 - Scheduled Backup (5 Poin)
+# =============================================================================
+- name: "Grade P3.3 - Scheduled Backup"
+  hosts: all
+  gather_facts: no
+  ignore_unreachable: yes
+  ignore_errors: yes
+
+  tasks:
+    - name: "P3.3 | /etc/cron.d/backup-rsync exists"
+      stat:
+        path: /etc/cron.d/backup-rsync
+      register: r_cron_file
+      failed_when: false
+
+    - name: "P3.3 | cron at 02:00"
+      shell: grep "02" /etc/cron.d/backup-rsync 2>/dev/null | grep -c "rsync" || echo 0
+      register: r_cron_time
+      changed_when: false
+      failed_when: false
+
+    - name: "P3.3 | rsync -avz in cron"
+      shell: grep -c "rsync.*-a" /etc/cron.d/backup-rsync 2>/dev/null || echo 0
+      register: r_cron_rsync
+      changed_when: false
+      failed_when: false
+
+    - name: "P3.3 | mysqldump/mariadb-dump cron (any location)"
+      shell: >
+        { crontab -l 2>/dev/null;
+          cat /etc/cron.d/* 2>/dev/null;
+          cat /etc/cron.daily/* 2>/dev/null; } |
+        grep -c "mysqldump\|mariadb-dump" || echo 0
+      register: r_cron_mysql
+      changed_when: false
+      failed_when: false
+
+    - name: "P3.3 | Tiered scores"
+      set_fact:
+        # rsync backup: 0 / 1 (file ada tapi waktu/command salah) / 3 (file + 02:00 + rsync -avz)
+        _s_rsync_backup: >-
+          {{ 3 if (r_cron_file.stat.exists | default(false) and
+                   (r_cron_time.stdout | default('0') | int) >= 1 and
+                   (r_cron_rsync.stdout | default('0') | int) >= 1)
+             else (2 if (r_cron_file.stat.exists | default(false) and (r_cron_rsync.stdout | default('0') | int) >= 1)
+             else (1 if (r_cron_file.stat.exists | default(false))
+             else 0)) }}
+        # mysql backup: 0 / 2 (ada cron mysqldump)
+        _s_mysql_backup: >-
+          {{ 2 if ((r_cron_mysql.stdout | default('0') | int) >= 1)
+             else 0 }}
+
+    - name: "P3.3 | Final score (cap 5)"
+      set_fact:
+        total_p3_3: >-
+          {{ [(_s_rsync_backup | int) + (_s_mysql_backup | int), 5] | min }}
+
+# =============================================================================
+# PART 4.1 - Firewall iptables (13 Poin)
+# =============================================================================
+- name: "Grade P4.1 - Firewall iptables"
+  hosts: all
+  gather_facts: no
+  ignore_unreachable: yes
+  ignore_errors: yes
+
+  tasks:
+    - name: "P4.1 | iptables installed"
+      shell: which iptables 2>/dev/null | wc -l
+      register: r_ipt_installed
+      changed_when: false
+      failed_when: false
+
+    - name: "P4.1 | any INPUT rules exist"
+      shell: iptables -L INPUT -n 2>/dev/null | grep -vc "^Chain\|^target" || echo 0
+      register: r_ipt_rules
+      changed_when: false
+      failed_when: false
+
+    - name: "P4.1 | default DROP policy"
+      shell: iptables -L INPUT -n 2>/dev/null | head -1 | grep -ic "DROP" || echo 0
+      register: r_ipt_drop
+      changed_when: false
+      failed_when: false
+
+    - name: "P4.1 | port 80 allowed"
+      shell: iptables -L INPUT -n 2>/dev/null | grep "ACCEPT" | grep -c "dpt:80" || echo 0
+      register: r_ipt_80
+      changed_when: false
+      failed_when: false
+
+    - name: "P4.1 | port 443 allowed"
+      shell: iptables -L INPUT -n 2>/dev/null | grep "ACCEPT" | grep -c "dpt:443" || echo 0
+      register: r_ipt_443
+      changed_when: false
+      failed_when: false
+
+    - name: "P4.1 | port 25 allowed"
+      shell: iptables -L INPUT -n 2>/dev/null | grep "ACCEPT" | grep -c "dpt:25" || echo 0
+      register: r_ipt_25
+      changed_when: false
+      failed_when: false
+
+    - name: "P4.1 | port 587 allowed"
+      shell: iptables -L INPUT -n 2>/dev/null | grep "ACCEPT" | grep -c "dpt:587" || echo 0
+      register: r_ipt_587
+      changed_when: false
+      failed_when: false
+
+    - name: "P4.1 | port 993 allowed"
+      shell: iptables -L INPUT -n 2>/dev/null | grep "ACCEPT" | grep -c "dpt:993" || echo 0
+      register: r_ipt_993
+      changed_when: false
+      failed_when: false
+
+    - name: "P4.1 | port 53 allowed"
+      shell: iptables -L INPUT -n 2>/dev/null | grep "ACCEPT" | grep -c "dpt:53" || echo 0
+      register: r_ipt_53
+      changed_when: false
+      failed_when: false
+
+    - name: "P4.1 | port 3306 NOT open to 0.0.0.0/0"
+      shell: iptables -L INPUT -n 2>/dev/null | grep "dpt:3306" | grep -c "0.0.0.0/0" || echo 0
+      register: r_ipt_3306_open
+      changed_when: false
+      failed_when: false
+
+    - name: "P4.1 | Tiered scores"
+      set_fact:
+        # Base policy: 0 (tidak ada rules) / 2 (ada rules tapi bukan DROP) / 4 (default DROP)
+        _s_policy: >-
+          {{ 4 if ((r_ipt_drop.stdout | default('0') | int) >= 1)
+             else (2 if ((r_ipt_rules.stdout | default('0') | int) >= 3)
+             else (1 if ((r_ipt_installed.stdout | default('0') | int) >= 1)
+             else 0)) }}
+        # Public ports whitelist: 1 poin per port yang benar (80,443,25,587,993,53)
+        _s_ports: >-
+          {{ (r_ipt_80.stdout | default('0') | int | bool | int) +
+             (r_ipt_443.stdout | default('0') | int | bool | int) +
+             (r_ipt_25.stdout | default('0') | int | bool | int) +
+             (r_ipt_587.stdout | default('0') | int | bool | int) +
+             (r_ipt_993.stdout | default('0') | int | bool | int) +
+             (r_ipt_53.stdout | default('0') | int | bool | int) }}
+        # Block 3306: 0 (terbuka ke publik) / 3 (tidak terbuka ke 0.0.0.0/0)
+        _s_block3306: >-
+          {{ 3 if ((r_ipt_3306_open.stdout | default('0') | int) == 0 and (r_ipt_rules.stdout | default('0') | int) >= 1)
+             else 0 }}
+
+    - name: "P4.1 | Final score (cap 13)"
+      set_fact:
+        total_p4_1: >-
+          {{ [(_s_policy | int) + (_s_ports | int) + (_s_block3306 | int), 13] | min }}
+
+# =============================================================================
+# PART 4.2 - Load Balancer HAProxy (12 Poin)
+# =============================================================================
+- name: "Grade P4.2 - Load Balancer"
+  hosts: all
+  gather_facts: no
+  ignore_unreachable: yes
+  ignore_errors: yes
+
+  tasks:
+    - name: "P4.2 | haproxy installed"
+      shell: dpkg -l haproxy 2>/dev/null | grep -c "^ii" || echo 0
+      register: r_hap_installed
+      changed_when: false
+      failed_when: false
+
+    - name: "P4.2 | haproxy active"
+      shell: systemctl is-active haproxy 2>/dev/null || echo inactive
+      register: r_hap_active
+      changed_when: false
+      failed_when: false
+
+    - name: "P4.2 | haproxy.cfg has frontend"
+      shell: grep -ic "^frontend" /etc/haproxy/haproxy.cfg 2>/dev/null || echo 0
+      register: r_hap_frontend
+      changed_when: false
+      failed_when: false
+
+    - name: "P4.2 | haproxy binds port 80"
+      shell: grep -c "bind.*:80" /etc/haproxy/haproxy.cfg 2>/dev/null || echo 0
+      register: r_hap_80
+      changed_when: false
+      failed_when: false
+
+    - name: "P4.2 | haproxy binds port 443"
+      shell: grep -c "bind.*:443" /etc/haproxy/haproxy.cfg 2>/dev/null || echo 0
+      register: r_hap_443
+      changed_when: false
+      failed_when: false
+
+    - name: "P4.2 | balance roundrobin"
+      shell: grep -ic "balance.*roundrobin" /etc/haproxy/haproxy.cfg 2>/dev/null || echo 0
+      register: r_hap_rr
+      changed_when: false
+      failed_when: false
+
+    - name: "P4.2 | backend server entries >= 2"
+      shell: grep -c "^[[:space:]]*server " /etc/haproxy/haproxy.cfg 2>/dev/null || echo 0
+      register: r_hap_nodes
+      changed_when: false
+      failed_when: false
+
+    - name: "P4.2 | health check in backend"
+      shell: grep "^[[:space:]]*server " /etc/haproxy/haproxy.cfg 2>/dev/null | grep -c "check" || echo 0
+      register: r_hap_hc
+      changed_when: false
+      failed_when: false
+
+    - name: "P4.2 | TLS termination crt directive"
+      shell: grep -c "crt " /etc/haproxy/haproxy.cfg 2>/dev/null || echo 0
+      register: r_hap_tls
+      changed_when: false
+      failed_when: false
+
+    - name: "P4.2 | Tiered scores"
+      set_fact:
+        # Service: 0 / 2 (install) / 3 (aktif) / 4 (aktif + ada frontend config)
+        _s_hap_svc: >-
+          {{ 4 if ('active' in (r_hap_active.stdout | default('')) and (r_hap_frontend.stdout | default('0') | int) >= 1)
+             else (3 if ('active' in (r_hap_active.stdout | default('')))
+             else (2 if ((r_hap_installed.stdout | default('0') | int) >= 1)
+             else 0)) }}
+        # Frontend HTTP+HTTPS: 0 / 1 (hanya 80) / 2 (80 dan 443)
+        _s_hap_frontend: >-
+          {{ 2 if ((r_hap_80.stdout | default('0') | int) >= 1 and (r_hap_443.stdout | default('0') | int) >= 1)
+             else (1 if ((r_hap_80.stdout | default('0') | int) >= 1 or (r_hap_443.stdout | default('0') | int) >= 1)
+             else 0) }}
+        # Backend: 0 / 1 (ada backend tapi 1 node) / 2 (roundrobin) / 3 (roundrobin+2node+check)
+        _s_hap_backend: >-
+          {{ 3 if ((r_hap_rr.stdout | default('0') | int) >= 1 and
+                   (r_hap_nodes.stdout | default('0') | int) >= 2 and
+                   (r_hap_hc.stdout | default('0') | int) >= 1)
+             else (2 if ((r_hap_rr.stdout | default('0') | int) >= 1 and (r_hap_nodes.stdout | default('0') | int) >= 2)
+             else (1 if ((r_hap_nodes.stdout | default('0') | int) >= 1)
+             else 0)) }}
+        # TLS: 0 / 3 (ada crt directive)
+        _s_hap_tls: >-
+          {{ 3 if ((r_hap_tls.stdout | default('0') | int) >= 1)
+             else 0 }}
+
+    - name: "P4.2 | Final score (cap 12)"
+      set_fact:
+        total_p4_2: >-
+          {{ [(_s_hap_svc | int) + (_s_hap_frontend | int) + (_s_hap_backend | int) + (_s_hap_tls | int), 12] | min }}
+
+# =============================================================================
+# PART 5 - Advanced Automation (5 Poin)
+# =============================================================================
+- name: "Grade P5 - Advanced Automation"
+  hosts: all
+  gather_facts: no
+  ignore_unreachable: yes
+  ignore_errors: yes
+
+  tasks:
+    - name: "P5 | count user001-user100"
+      shell: |
+        COUNT=0
+        for i in $(seq -w 1 100); do
+          id "user$(printf '%03d' $i)" >/dev/null 2>&1 && COUNT=$((COUNT+1))
+        done
+        echo $COUNT
+      register: r_bulk_users
+      changed_when: false
+      failed_when: false
+
+    - name: "P5 | lks_challenge group"
+      command: getent group lks_challenge
+      register: r_lks_group
+      changed_when: false
+      failed_when: false
+
+    - name: "P5 | PAM pwquality/cracklib config"
+      shell: grep -r "pwquality\|pam_cracklib\|minlen" /etc/pam.d/ /etc/security/ 2>/dev/null | grep -vc "#" || echo 0
+      register: r_pam
+      changed_when: false
+      failed_when: false
+
+    - name: "P5 | 05-services.yml exists"
+      stat:
+        path: /etc/ansible/05-services.yml
+      register: r_services_yml
+      failed_when: false
+
+    - name: "P5 | Tiered scores"
+      set_fact:
+        # Users: 0 / 1 (1-49 user) / 2 (50-99) / 3 (100 user lengkap + group)
+        _s_users: >-
+          {{ 3 if ((r_bulk_users.stdout | default('0') | int) == 100 and (r_lks_group.rc | default(1)) == 0)
+             else (2 if ((r_bulk_users.stdout | default('0') | int) >= 50)
+             else (1 if ((r_bulk_users.stdout | default('0') | int) >= 1)
+             else 0)) }}
+        # PAM: 0 / 1 (ada konfigurasi)
+        _s_pam: >-
+          {{ 1 if ((r_pam.stdout | default('0') | int) >= 1) else 0 }}
+        # 05-services.yml: 0 / 1
+        _s_services: >-
+          {{ 1 if (r_services_yml.stat.exists | default(false)) else 0 }}
+
+    - name: "P5 | Final score (cap 5)"
+      set_fact:
+        total_p5: >-
+          {{ [(_s_users | int) + (_s_pam | int) + (_s_services | int), 5] | min }}
+
+# =============================================================================
+# BONUS - Ansible Automation (+20 Poin)
+# =============================================================================
+- name: "Grade BONUS - Ansible Automation"
+  hosts: all
+  gather_facts: no
+  ignore_unreachable: yes
+  ignore_errors: yes
+
+  tasks:
+    - name: "BONUS | 01-general.yml exists"
+      stat: path=/etc/ansible/01-general.yml
+      register: r_pb01
+      failed_when: false
+
+    - name: "BONUS | 01-general.yml uses timezone module"
+      shell: grep -c "timezone\|Asia/Jakarta" /etc/ansible/01-general.yml 2>/dev/null || echo 0
+      register: r_pb01_tz
+      changed_when: false
+      failed_when: false
+
+    - name: "BONUS | 01-general.yml is idempotent (uses module not shell for ntp)"
+      shell: grep -c "ansible.builtin\|community.general\|ntp\|chrony" /etc/ansible/01-general.yml 2>/dev/null || echo 0
+      register: r_pb01_idem
+      changed_when: false
+      failed_when: false
+
+    - name: "BONUS | 02-users.yml exists"
+      stat: path=/etc/ansible/02-users.yml
+      register: r_pb02
+      failed_when: false
+
+    - name: "BONUS | 02-users.yml uses vars/loop"
+      shell: grep -c "vars\|loop\|with_items\|variables" /etc/ansible/02-users.yml 2>/dev/null || echo 0
+      register: r_pb02_vars
+      changed_when: false
+      failed_when: false
+
+    - name: "BONUS | 03-dns.yml exists"
+      stat: path=/etc/ansible/03-dns.yml
+      register: r_pb03
+      failed_when: false
+
+    - name: "BONUS | 03-dns.yml has restart handler"
+      shell: grep -c "handler\|restart\|notify" /etc/ansible/03-dns.yml 2>/dev/null || echo 0
+      register: r_pb03_restart
+      changed_when: false
+      failed_when: false
+
+    - name: "BONUS | 04-web.yml exists"
+      stat: path=/etc/ansible/04-web.yml
+      register: r_pb04
+      failed_when: false
+
+    - name: "BONUS | 04-web.yml covers nginx and mariadb"
+      shell: grep -ic "nginx" /etc/ansible/04-web.yml 2>/dev/null | grep -v "^0" | wc -l
+      register: r_pb04_nginx
+      changed_when: false
+      failed_when: false
+
+    - name: "BONUS | 04-web.yml has mariadb"
+      shell: grep -ic "mariadb\|mysql" /etc/ansible/04-web.yml 2>/dev/null | grep -v "^0" | wc -l
+      register: r_pb04_db
+      changed_when: false
+      failed_when: false
+
+    - name: "BONUS | Tiered scores per playbook (0/2/3/5)"
+      set_fact:
+        # 0=tidak ada, 2=file ada tapi minimal, 3=ada+sebagian kriteria, 5=lengkap+idempotent
+        _s_pb01: >-
+          {{ 5 if (r_pb01.stat.exists | default(false) and
+                   (r_pb01_tz.stdout | default('0') | int) >= 1 and
+                   (r_pb01_idem.stdout | default('0') | int) >= 1)
+             else (3 if (r_pb01.stat.exists | default(false) and (r_pb01_tz.stdout | default('0') | int) >= 1)
+             else (2 if (r_pb01.stat.exists | default(false))
+             else 0)) }}
+        _s_pb02: >-
+          {{ 5 if (r_pb02.stat.exists | default(false) and (r_pb02_vars.stdout | default('0') | int) >= 1)
+             else (3 if (r_pb02.stat.exists | default(false))
+             else 0) }}
+        _s_pb03: >-
+          {{ 5 if (r_pb03.stat.exists | default(false) and (r_pb03_restart.stdout | default('0') | int) >= 1)
+             else (3 if (r_pb03.stat.exists | default(false))
+             else 0) }}
+        _s_pb04: >-
+          {{ 5 if (r_pb04.stat.exists | default(false) and
+                   (r_pb04_nginx.stdout | default('0') | int) >= 1 and
+                   (r_pb04_db.stdout | default('0') | int) >= 1)
+             else (3 if (r_pb04.stat.exists | default(false))
+             else 0) }}
+
+    - name: "BONUS | Final score (cap 20)"
+      set_fact:
+        total_bonus: >-
+          {{ [(_s_pb01 | int) + (_s_pb02 | int) + (_s_pb03 | int) + (_s_pb04 | int), 20] | min }}
+
+# =============================================================================
+# COLLECT RESULTS & GENERATE CSV
+# =============================================================================
+- name: "Collect all scores and generate CSV"
+  hosts: localhost
+  gather_facts: no
+
+  tasks:
+    - name: "Ensure results dir"
+      file:
+        path: "{{ playbook_dir }}/results"
+        state: directory
+        mode: '0755'
+
+    - name: "Build per-host score list"
+      set_fact:
+        all_scores: >-
+          {{ all_scores | default([]) + [{
+            'peserta': hostvars[item].peserta | default('?'),
+            'nama':    hostvars[item].nama    | default('Unknown'),
+            'role':    hostvars[item].role    | default('?'),
+            'p1_1':   hostvars[item].total_p1_1  | default(0) | int,
+            'p1_2':   hostvars[item].total_p1_2  | default(0) | int,
+            'p2_1':   hostvars[item].total_p2_1  | default(0) | int,
+            'p2_2':   hostvars[item].total_p2_2  | default(0) | int,
+            'p3_1':   hostvars[item].total_p3_1  | default(0) | int,
+            'p3_2':   hostvars[item].total_p3_2  | default(0) | int,
+            'p3_3':   hostvars[item].total_p3_3  | default(0) | int,
+            'p4_1':   hostvars[item].total_p4_1  | default(0) | int,
+            'p4_2':   hostvars[item].total_p4_2  | default(0) | int,
+            'p5':     hostvars[item].total_p5    | default(0) | int,
+            'bonus':  hostvars[item].total_bonus | default(0) | int
+          }] }}
+      loop: "{{ groups['all'] | select('ne', 'localhost') | list }}"
+
+    - name: "Consolidate — max score per section per peserta"
+      set_fact:
+        consolidated: >-
+          {{ consolidated | default({}) | combine({
+            item.peserta | string: {
+              'peserta': item.peserta,
+              'nama':    item.nama,
+              'p1_1': [(consolidated | default({})).get(item.peserta | string, {}).get('p1_1', 0), item.p1_1] | max,
+              'p1_2': [(consolidated | default({})).get(item.peserta | string, {}).get('p1_2', 0), item.p1_2] | max,
+              'p2_1': [(consolidated | default({})).get(item.peserta | string, {}).get('p2_1', 0), item.p2_1] | max,
+              'p2_2': [(consolidated | default({})).get(item.peserta | string, {}).get('p2_2', 0), item.p2_2] | max,
+              'p3_1': [(consolidated | default({})).get(item.peserta | string, {}).get('p3_1', 0), item.p3_1] | max,
+              'p3_2': [(consolidated | default({})).get(item.peserta | string, {}).get('p3_2', 0), item.p3_2] | max,
+              'p3_3': [(consolidated | default({})).get(item.peserta | string, {}).get('p3_3', 0), item.p3_3] | max,
+              'p4_1': [(consolidated | default({})).get(item.peserta | string, {}).get('p4_1', 0), item.p4_1] | max,
+              'p4_2': [(consolidated | default({})).get(item.peserta | string, {}).get('p4_2', 0), item.p4_2] | max,
+              'p5':   [(consolidated | default({})).get(item.peserta | string, {}).get('p5',   0), item.p5]   | max,
+              'bonus':[(consolidated | default({})).get(item.peserta | string, {}).get('bonus',0), item.bonus]| max
+            }
+          }) }}
+      loop: "{{ all_scores | default([]) }}"
+
+    - name: "Write CSV"
+      copy:
+        dest: "{{ playbook_dir }}/results/grading_results.csv"
+        content: |
+          No,Nama Peserta,P1.1 (8),P1.2 (7),P2.1 (12),P2.2 (13),P3.1 (12),P3.2 (13),P3.3 (5),P4.1 (13),P4.2 (12),P5 (5),Total Core (100),Bonus Ansible (+20),Skor Akhir (Max 120)
+          {% for key in consolidated | default({}) | sort %}{% set s = consolidated[key] %}{% set core = (s.p1_1 + s.p1_2 + s.p2_1 + s.p2_2 + s.p3_1 + s.p3_2 + s.p3_3 + s.p4_1 + s.p4_2 + s.p5) | int %}
+          {{ s.peserta }},{{ s.nama }},{{ s.p1_1 }},{{ s.p1_2 }},{{ s.p2_1 }},{{ s.p2_2 }},{{ s.p3_1 }},{{ s.p3_2 }},{{ s.p3_3 }},{{ s.p4_1 }},{{ s.p4_2 }},{{ s.p5 }},{{ core }},{{ s.bonus }},{{ core + (s.bonus | int) }}
+          {% endfor %}
+
+    - name: "Print summary"
+      debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════════════╗
+          ║      LKS BEKASI 2026 - GRADING RESULTS (Tiered Partial Credit)      ║
+          ╚══════════════════════════════════════════════════════════════════════╝
+          Skema: 0=tidak ada usaha | 25%=install saja | 50%=partial | 100%=lengkap
+          ──────────────────────────────────────────────────────────────────────
+          {% for key in consolidated | default({}) | sort %}{% set s = consolidated[key] %}{% set core = (s.p1_1 + s.p1_2 + s.p2_1 + s.p2_2 + s.p3_1 + s.p3_2 + s.p3_3 + s.p4_1 + s.p4_2 + s.p5) | int %}
+          ► Peserta {{ s.peserta }} — {{ s.nama }}
+            P1.1={{ s.p1_1 }}/8   P1.2={{ s.p1_2 }}/7   P2.1={{ s.p2_1 }}/12  P2.2={{ s.p2_2 }}/13
+            P3.1={{ s.p3_1 }}/12  P3.2={{ s.p3_2 }}/13  P3.3={{ s.p3_3 }}/5
+            P4.1={{ s.p4_1 }}/13  P4.2={{ s.p4_2 }}/12  P5={{ s.p5 }}/5
+            Core={{ core }}/100  Bonus={{ s.bonus }}/20  ★ TOTAL={{ core + (s.bonus | int) }}/120
+          {% endfor %}
+          ──────────────────────────────────────────────────────────────────────
+          ✅ CSV: results/grading_results.csv

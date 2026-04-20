@@ -1,0 +1,371 @@
+---
+# =============================================================================
+# LKS BEKASI 2026 - COLLECT EVIDENCE BEFORE VM DESTROY
+# Salin semua data penting dari tiap VM peserta ke mesin lokal
+#
+# Jalankan: ansible-playbook collect_evidence.yml
+# Output  : evidence/<peserta_N>/<role>/...
+# =============================================================================
+
+# =============================================================================
+# STEP 1 — Buat arsip di masing-masing VM dulu (lebih cepat dari fetch satu-satu)
+# =============================================================================
+- name: "Prepare evidence archives on each host"
+  hosts: all
+  gather_facts: yes
+  ignore_unreachable: yes
+  ignore_errors: yes
+
+  vars:
+    tmp_dir: /tmp/lks_evidence
+
+  tasks:
+    - name: "Create temp evidence dir"
+      file:
+        path: "{{ tmp_dir }}"
+        state: directory
+        mode: '0700'
+
+    # ── Config Files ──────────────────────────────────────────────────────────
+    - name: "Collect config files"
+      shell: |
+        DST={{ tmp_dir }}/configs
+        mkdir -p $DST
+
+        # Nginx
+        [ -d /etc/nginx ]   && cp -r /etc/nginx   $DST/ 2>/dev/null || true
+        # HAProxy
+        [ -d /etc/haproxy ] && cp -r /etc/haproxy $DST/ 2>/dev/null || true
+        # BIND9
+        [ -d /etc/bind ]    && cp -r /etc/bind     $DST/ 2>/dev/null || true
+        [ -d /var/lib/bind ] && cp -r /var/lib/bind $DST/bind_zones 2>/dev/null || true
+        # Postfix
+        [ -d /etc/postfix ] && cp -r /etc/postfix  $DST/ 2>/dev/null || true
+        # Dovecot
+        [ -d /etc/dovecot ] && cp -r /etc/dovecot  $DST/ 2>/dev/null || true
+        # MariaDB
+        [ -d /etc/mysql ]   && cp -r /etc/mysql    $DST/ 2>/dev/null || true
+        # NFS / Samba / vsftpd
+        [ -f /etc/exports ]       && cp /etc/exports       $DST/ 2>/dev/null || true
+        [ -f /etc/samba/smb.conf ] && cp /etc/samba/smb.conf $DST/ 2>/dev/null || true
+        [ -f /etc/vsftpd.conf ]   && cp /etc/vsftpd.conf   $DST/ 2>/dev/null || true
+        # fstab & hosts & hostname
+        cp /etc/fstab    $DST/ 2>/dev/null || true
+        cp /etc/hosts    $DST/ 2>/dev/null || true
+        cp /etc/hostname $DST/ 2>/dev/null || true
+        # Cron jobs
+        mkdir -p $DST/cron
+        [ -d /etc/cron.d ]     && cp -r /etc/cron.d     $DST/cron/ 2>/dev/null || true
+        [ -d /etc/cron.daily ] && cp -r /etc/cron.daily $DST/cron/ 2>/dev/null || true
+        crontab -l 2>/dev/null > $DST/cron/root_crontab 2>/dev/null || true
+        echo "done"
+      changed_when: false
+      failed_when: false
+
+    # ── Ansible Playbooks ─────────────────────────────────────────────────────
+    - name: "Collect Ansible playbooks"
+      shell: |
+        DST={{ tmp_dir }}/ansible
+        mkdir -p $DST
+        [ -d /etc/ansible ] && cp -r /etc/ansible/. $DST/ 2>/dev/null || true
+        echo "done"
+      changed_when: false
+      failed_when: false
+
+    # ── Certificates & CA ─────────────────────────────────────────────────────
+    - name: "Collect certificates"
+      shell: |
+        DST={{ tmp_dir }}/certs
+        mkdir -p $DST
+        [ -d /etc/ssl/itnsa_ca ] && cp -r /etc/ssl/itnsa_ca $DST/ 2>/dev/null || true
+        # juga cek lokasi alternatif
+        find /etc/ssl /etc/pki 2>/dev/null -name "*.crt" -o -name "*.pem" | \
+          grep -i "itnsa\|lks\|bekasi" | \
+          xargs -I{} cp {} $DST/ 2>/dev/null || true
+        echo "done"
+      changed_when: false
+      failed_when: false
+
+    # ── Database Dump ─────────────────────────────────────────────────────────
+    - name: "Dump MariaDB app_db (if exists)"
+      shell: |
+        DST={{ tmp_dir }}/database
+        mkdir -p $DST
+        if systemctl is-active mariadb >/dev/null 2>&1; then
+          mysqldump -u root -pLksBekasi2026! --databases app_db --single-transaction --routines --triggers 2>/dev/null > $DST/app_db.sql || true
+          mysql -u root -pLksBekasi2026! -e "SELECT user, host, plugin FROM mysql.user;" 2>/dev/null > $DST/users_grants.txt || true
+          mysql -u root -pLksBekasi2026! -e "SHOW GRANTS FOR 'db_admin'@'%';" 2>/dev/null >> $DST/users_grants.txt || true
+        else
+          echo "MariaDB not running" > $DST/mariadb_not_running.txt
+        fi
+        echo "done"
+      changed_when: false
+      failed_when: false
+
+    # ── Service Logs ──────────────────────────────────────────────────────────
+    - name: "Collect service logs (last 500 lines each)"
+      shell: |
+        DST={{ tmp_dir }}/logs
+        mkdir -p $DST
+        for svc in nginx haproxy postfix dovecot named bind9 mariadb nfs-server vsftpd smbd; do
+          journalctl -u $svc -n 500 --no-pager 2>/dev/null > $DST/${svc}.log || true
+        done
+        # syslog
+        tail -500 /var/log/syslog 2>/dev/null > $DST/syslog.log || true
+        echo "done"
+      changed_when: false
+      failed_when: false
+
+    # ── SSH Logs ──────────────────────────────────────────────────────────────
+    - name: "Collect SSH logs"
+      shell: |
+        DST={{ tmp_dir }}/logs
+        mkdir -p $DST
+
+        # journalctl SSH — semua entri tersedia
+        journalctl -u ssh -u sshd --no-pager 2>/dev/null > $DST/ssh_journal.log || true
+
+        # auth.log penuh (bukan cuma 500 baris) — berisi semua login/sudo/su
+        cat /var/log/auth.log   2>/dev/null > $DST/auth_full.log   || true
+        cat /var/log/auth.log.1 2>/dev/null >> $DST/auth_full.log  || true
+
+        # Ringkasan: login sukses
+        grep "Accepted\|session opened" /var/log/auth.log 2>/dev/null \
+          > $DST/ssh_accepted.log || true
+
+        # Ringkasan: login gagal / brute force attempt
+        grep "Failed\|Invalid\|BREAK-IN" /var/log/auth.log 2>/dev/null \
+          > $DST/ssh_failed.log || true
+
+        # Siapa saja yang pernah login (last & lastb)
+        last    -F 2>/dev/null > $DST/ssh_last.log  || true
+        lastb   -F 2>/dev/null > $DST/ssh_lastb.log || true
+
+        # Sesi aktif saat ini
+        who -a  2>/dev/null > $DST/ssh_who.log       || true
+        w       2>/dev/null >> $DST/ssh_who.log       || true
+
+        # SSH server config (port, PermitRoot, dll)
+        cat /etc/ssh/sshd_config 2>/dev/null > $DST/sshd_config.txt || true
+
+        # Authorized keys root
+        cat /root/.ssh/authorized_keys 2>/dev/null \
+          > $DST/root_authorized_keys.txt || true
+
+        # Known hosts
+        cat /root/.ssh/known_hosts 2>/dev/null \
+          > $DST/root_known_hosts.txt || true
+
+        echo "done"
+      changed_when: false
+      failed_when: false
+
+    # ── Service Status Snapshot ───────────────────────────────────────────────
+    - name: "Capture service status snapshot"
+      shell: |
+        DST={{ tmp_dir }}/status
+        mkdir -p $DST
+
+        # systemctl status semua service relevan
+        for svc in nginx haproxy postfix dovecot named bind9 mariadb \
+                   nfs-server nfs-kernel-server vsftpd smbd chrony \
+                   systemd-timesyncd; do
+          systemctl status $svc --no-pager 2>&1 >> $DST/services.txt
+          echo "---" >> $DST/services.txt
+        done
+
+        # iptables rules lengkap
+        iptables -L -n -v --line-numbers  2>/dev/null > $DST/iptables.txt  || true
+        iptables -t nat -L -n -v          2>/dev/null >> $DST/iptables.txt || true
+
+        # Listening ports
+        ss -tlnp  2>/dev/null > $DST/ports_tcp.txt || true
+        ss -ulnp  2>/dev/null > $DST/ports_udp.txt || true
+
+        # HAProxy config test
+        haproxy -c -f /etc/haproxy/haproxy.cfg 2>&1 > $DST/haproxy_check.txt || true
+
+        # DNS check
+        dig @127.0.0.1 itnsa.id SOA  2>/dev/null > $DST/dns_query.txt || true
+        dig @127.0.0.1 www.itnsa.id  2>/dev/null >> $DST/dns_query.txt || true
+        named-checkconf 2>&1          >> $DST/dns_query.txt || true
+
+        # NFS exports
+        exportfs -v 2>/dev/null > $DST/nfs_exports.txt || true
+        showmount -e 127.0.0.1  2>/dev/null >> $DST/nfs_exports.txt || true
+
+        # Samba
+        testparm -s 2>/dev/null > $DST/samba_config.txt || true
+
+        # Users
+        cat /etc/passwd | grep -v "nologin\|false" > $DST/users.txt 2>/dev/null || true
+        getent group lks_challenge 2>/dev/null >> $DST/users.txt || true
+
+        # PAM
+        cat /etc/pam.d/common-password 2>/dev/null > $DST/pam_password.txt || true
+        cat /etc/security/pwquality.conf 2>/dev/null >> $DST/pam_password.txt || true
+
+        # timedatectl
+        timedatectl 2>/dev/null > $DST/timezone.txt || true
+
+        # Disk & mount
+        df -h     2>/dev/null > $DST/disk.txt  || true
+        mount     2>/dev/null > $DST/mounts.txt || true
+
+        echo "done"
+      changed_when: false
+      failed_when: false
+
+    # ── WordPress config (tanpa password plain di-commit) ────────────────────
+    - name: "Collect WordPress config"
+      shell: |
+        DST={{ tmp_dir }}/wordpress
+        mkdir -p $DST
+        WP=$(find /var/www -name "wp-config.php" 2>/dev/null | head -1)
+        if [ -n "$WP" ]; then
+          # Salin wp-config tapi sensor password DB
+          sed 's/\(DB_PASSWORD.*\)\('"'"'[^'"'"']*'"'"'\)/\1'"'"'***REDACTED***'"'"'/' \
+            "$WP" > $DST/wp-config.php 2>/dev/null || cp "$WP" $DST/wp-config.php
+          # Cek apakah WordPress bisa connect ke DB
+          php -r "
+            define('ABSPATH', '/tmp/');
+            \$c = mysqli_connect(
+              '$(grep DB_HOST $WP | grep -oP \"'[^']+'\"|tr -d \"'\" | head -1)',
+              '$(grep DB_USER $WP | grep -oP \"'[^']+'\"|tr -d \"'\" | head -1)',
+              '$(grep DB_PASSWORD $WP | grep -oP \"'[^']+'\"|tr -d \"'\" | head -1)',
+              '$(grep DB_NAME $WP | grep -oP \"'[^']+'\"|tr -d \"'\" | head -1)'
+            );
+            echo \$c ? 'DB_CONNECTION: OK' : 'DB_CONNECTION: FAILED - '.mysqli_connect_error();
+          " 2>/dev/null > $DST/wp_db_check.txt || echo "php not available" > $DST/wp_db_check.txt
+        else
+          echo "WordPress not found" > $DST/wordpress_not_found.txt
+        fi
+        echo "done"
+      changed_when: false
+      failed_when: false
+
+    # ── Buat archive tar.gz ───────────────────────────────────────────────────
+    - name: "Pack everything into a single archive"
+      shell: |
+        cd /tmp
+        tar czf lks_evidence_{{ peserta }}_{{ role }}.tar.gz lks_evidence/ 2>/dev/null
+        echo "done"
+      changed_when: false
+      failed_when: false
+
+# =============================================================================
+# STEP 2 — Fetch arsip ke mesin lokal
+# =============================================================================
+- name: "Fetch evidence archives to local machine"
+  hosts: all
+  gather_facts: no
+  ignore_unreachable: yes
+  ignore_errors: yes
+
+  tasks:
+    - name: "Fetch archive from each host"
+      fetch:
+        src: /tmp/lks_evidence_{{ peserta }}_{{ role }}.tar.gz
+        dest: "{{ playbook_dir }}/evidence/peserta_{{ peserta }}/{{ role }}/lks_evidence.tar.gz"
+        flat: yes
+        fail_on_missing: no
+
+# =============================================================================
+# STEP 3 — Ekstrak & rapikan di lokal, lalu cleanup VM
+# =============================================================================
+- name: "Extract archives and cleanup"
+  hosts: localhost
+  gather_facts: no
+
+  tasks:
+    - name: "Extract all fetched archives"
+      shell: |
+        BASE="{{ playbook_dir }}/evidence"
+        for archive in $(find $BASE -name "*.tar.gz" 2>/dev/null); do
+          DIR=$(dirname $archive)
+          tar xzf $archive -C $DIR --strip-components=1 2>/dev/null || true
+          rm -f $archive
+        done
+        echo "done"
+      changed_when: false
+      failed_when: false
+
+    - name: "Generate evidence summary report"
+      shell: |
+        BASE="{{ playbook_dir }}/evidence"
+        REPORT="$BASE/SUMMARY.txt"
+        echo "================================================================" > $REPORT
+        echo "  LKS BEKASI 2026 — EVIDENCE COLLECTION SUMMARY"                >> $REPORT
+        echo "  Generated: $(date)"                                            >> $REPORT
+        echo "================================================================" >> $REPORT
+        echo ""                                                                >> $REPORT
+
+        for P in $(ls -d $BASE/peserta_* 2>/dev/null | sort); do
+          PNAME=$(basename $P)
+          echo "► $PNAME" >> $REPORT
+          for ROLE in gateway node1 node2 nfs; do
+            DIR="$P/$ROLE"
+            if [ -d "$DIR" ]; then
+              SIZE=$(du -sh $DIR 2>/dev/null | cut -f1)
+              FILES=$(find $DIR -type f 2>/dev/null | wc -l)
+              echo "   [$ROLE] $FILES files, $SIZE" >> $REPORT
+              # Ringkasan services dari status snapshot
+              if [ -f "$DIR/status/services.txt" ]; then
+                ACTIVE=$(grep -c "Active: active" $DIR/status/services.txt 2>/dev/null || echo 0)
+                echo "   [$ROLE] Services active: $ACTIVE" >> $REPORT
+              fi
+            else
+              echo "   [$ROLE] ⚠ No data (unreachable?)" >> $REPORT
+            fi
+          done
+          echo "" >> $REPORT
+        done
+
+        echo "================================================================" >> $REPORT
+        echo "Evidence dir structure:"                                         >> $REPORT
+        find $BASE -not -name "*.tar.gz" -type f | sort | \
+          sed "s|$BASE/||" | head -200                                         >> $REPORT
+        cat $REPORT
+      changed_when: false
+      failed_when: false
+      register: summary
+
+    - name: "Show summary"
+      debug:
+        msg: "{{ summary.stdout_lines }}"
+
+    - name: "Done — evidence saved"
+      debug:
+        msg: |
+          ✅ Evidence collection complete!
+          📁 Lokasi: {{ playbook_dir }}/evidence/
+          📋 Summary: {{ playbook_dir }}/evidence/SUMMARY.txt
+
+          Struktur folder:
+          evidence/
+          ├── SUMMARY.txt
+          ├── peserta_1/
+          │   ├── gateway/  (configs, ansible, certs, logs, status, database, wordpress)
+          │   ├── node1/
+          │   ├── node2/
+          │   └── nfs/
+          ├── peserta_2/
+          │   └── ...
+          └── ...
+
+# =============================================================================
+# STEP 4 — Cleanup file temp di VM (opsional, uncomment jika mau)
+# =============================================================================
+# - name: "Cleanup temp files on VMs"
+#   hosts: all
+#   gather_facts: no
+#   ignore_unreachable: yes
+#   ignore_errors: yes
+#   tasks:
+#     - name: "Remove temp evidence dir"
+#       file:
+#         path: "{{ item }}"
+#         state: absent
+#       loop:
+#         - /tmp/lks_evidence
+#         - /tmp/lks_evidence_{{ peserta }}_{{ role }}.tar.gz
