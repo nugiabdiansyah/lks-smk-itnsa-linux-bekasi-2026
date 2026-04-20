@@ -1,8 +1,12 @@
-# Autograding LKS Linux Environment
+# Autograding
 
-Folder ini berisi playbook Ansible untuk melakukan penilaian otomatis terhadap VM
-peserta dan menghasilkan file CSV yang format kolomnya sudah cocok untuk grading
-sheet lomba.
+Folder `autograding/` berisi playbook Ansible untuk menilai server peserta secara
+otomatis. Tujuannya sederhana: panitia tidak perlu memeriksa satu per satu secara
+manual semua layanan di setiap VM.
+
+Kalau kamu siswa yang sedang belajar Linux, folder ini sangat berguna untuk
+dipelajari karena di sinilah kamu bisa melihat “apa saja yang sebenarnya dicek”
+ketika seseorang mengatakan sebuah server sudah dikonfigurasi dengan benar.
 
 ## Isi Folder
 
@@ -14,128 +18,154 @@ autograding/
 `- grade_all.yml
 ```
 
-## Penjelasan Masing-Masing File
+## Gambaran Singkat Cara Kerjanya
+
+Secara umum, alurnya seperti ini:
+
+1. Ansible login ke semua host peserta yang ada di `inventory.ini`.
+2. Playbook menjalankan banyak pengecekan, misalnya service aktif atau tidak,
+   file konfigurasi ada atau tidak, port terbuka atau tidak, dan seterusnya.
+3. Hasil pengecekan diubah menjadi skor.
+4. Semua skor peserta dirangkum ke file CSV.
+
+Jadi folder ini bukan untuk membangun server, tetapi untuk memeriksa hasil akhir
+konfigurasi server.
+
+## Penjelasan File
 
 ### `ansible.cfg`
 
-Konfigurasi lokal Ansible untuk proses grading. Beberapa pengaturan penting yang
-terlihat di file ini:
+File ini adalah pengaturan Ansible untuk folder `autograding/`. Beberapa bagian
+yang penting:
 
-- `inventory = inventory.ini`, jadi playbook otomatis memakai inventory di folder ini.
-- `host_key_checking = False`, cocok untuk lab/lomba yang banyak instance baru.
-- `forks = 10`, memungkinkan pengecekan paralel ke beberapa host.
-- `pipelining = True`, mempercepat eksekusi SSH.
-- `roles_path = roles`, walaupun saat ini repo belum memiliki folder `roles/`.
+- `inventory = inventory.ini`
+  Artinya Ansible otomatis membaca daftar host dari file `inventory.ini`.
+- `host_key_checking = False`
+  Supaya Ansible tidak berhenti hanya karena host belum pernah diakses sebelumnya.
+- `forks = 10`
+  Ansible bisa memeriksa beberapa host sekaligus.
+- `pipelining = True`
+  Membantu eksekusi jadi sedikit lebih cepat.
+
+Kalau kamu baru belajar Ansible, anggap file ini sebagai “pengaturan kerja”
+supaya playbook bisa berjalan lebih praktis.
 
 ### `inventory.ini`
 
-Daftar host semua peserta. Setiap peserta memiliki 4 node:
+File ini berisi daftar server peserta. Setiap peserta punya 4 mesin:
 
 - `gateway`
 - `node1`
 - `node2`
 - `nfs`
 
-Setiap host juga diberi variabel:
+Setiap host juga punya informasi tambahan seperti:
 
-- `peserta`
-- `nama`
-- `role`
+- nomor peserta,
+- nama peserta,
+- role host.
 
-Di bagian `[all:vars]`, file ini mendefinisikan login yang dipakai Ansible:
+Bagian `[all:vars]` dipakai untuk menyimpan user dan password SSH yang dipakai
+Ansible saat login ke semua server.
 
-- `ansible_user=root`
-- `ansible_password=LksBekasi2026!`
-
-Karena berisi IP publik dan password operasional, file ini sensitif dan sebaiknya
-tidak dibagikan ke luar tim panitia tanpa sanitasi.
+Karena isinya sensitif, file ini sebaiknya tidak dibagikan sembarangan.
 
 ### `grade_all.yml`
 
-Playbook utama autograding. File ini panjang dan menjadi inti sistem penilaian.
-Secara garis besar, playbook melakukan hal berikut:
+Inilah file paling penting di folder ini. `grade_all.yml` adalah playbook utama
+yang melakukan seluruh proses penilaian otomatis.
 
-1. Menjalankan banyak blok grading ke semua host peserta.
-2. Menyimpan skor per host dengan `set_fact`.
-3. Mengambil nilai maksimum per bagian untuk setiap peserta dari 4 node yang dimiliki.
-4. Menghasilkan CSV akhir di `results/grading_results.csv`.
-
-Bagian penilaian yang diperiksa:
+Di dalam file ini ada beberapa blok penilaian, di antaranya:
 
 - `P1.1` General Config dan CA
 - `P1.2` Email Server
 - `P2.1` MariaDB
 - `P2.2` File Sharing
-- `P3.1` DNS Primary dan Slave
-- `P3.2` Web Services dan Database Cluster
+- `P3.1` DNS
+- `P3.2` Web Services
 - `P3.3` Scheduled Backup
 - `P4.1` Firewall iptables
 - `P4.2` Load Balancer HAProxy
 - `P5` Advanced Automation
-- `BONUS` Optional Automation Challenge berbasis Ansible
+- bonus Ansible
 
-Karakter implementasinya:
+Setiap bagian tidak selalu dinilai dengan pola “ada = 100, tidak ada = 0”.
+Banyak skor di file ini memakai konsep bertahap atau partial credit. Misalnya:
 
-- `gather_facts: no` di mayoritas blok agar grading lebih cepat.
-- `ignore_unreachable: yes` dan `ignore_errors: yes` supaya satu host bermasalah tidak
-  menghentikan grading seluruh peserta.
-- Skor bersifat bertingkat, bukan sekadar pass/fail. Ada partial credit berdasarkan
-  kedalaman implementasi.
-- Output akhir ditulis sebagai CSV yang siap diimport ke workbook nilai.
+- layanan sudah terpasang, tapi belum aktif,
+- layanan aktif, tapi konfigurasi belum lengkap,
+- layanan aktif dan konfigurasi lengkap.
+
+Ini bagus untuk lomba maupun pembelajaran, karena usaha peserta tetap terlihat
+meskipun hasilnya belum sempurna.
 
 ## Output Yang Dihasilkan
 
-Saat playbook dijalankan, ia akan membuat folder `results/` dan file:
+Saat playbook dijalankan, sistem akan membuat folder `results/` dan file:
 
-- `results/grading_results.csv`
-
-Kolom CSV yang ditulis:
-
-- `No`
-- `Nama Peserta`
-- `P1.1 (8)` sampai `P5 (5)`
-- `Total Core (100)`
-- `Bonus Ansible (+20)`
-- `Skor Akhir (Max 120)`
-
-## Cara Pakai
-
-### 1. Periksa Inventory
-
-Pastikan semua IP host peserta benar:
-
-```bash
-cd autograding
-sed -n '1,200p' inventory.ini
+```text
+results/grading_results.csv
 ```
 
-### 2. Jalankan Grading Semua Peserta
+File CSV ini nantinya bisa dimasukkan ke grading sheet Excel.
+
+Kolom yang ditulis antara lain:
+
+- nomor peserta,
+- nama peserta,
+- skor tiap bagian,
+- total core,
+- bonus Ansible,
+- skor akhir.
+
+## Cara Menjalankan
+
+### Menilai Semua Peserta
 
 ```bash
 cd autograding
 ansible-playbook grade_all.yml
 ```
 
-### 3. Jalankan Grading Hanya Untuk Satu Peserta
+### Menilai Satu Peserta Saja
 
 ```bash
 cd autograding
 ansible-playbook grade_all.yml --limit peserta_1
 ```
 
-### 4. Lihat Hasil CSV
+### Melihat Hasil Penilaian
 
 ```bash
 cd autograding
 cat results/grading_results.csv
 ```
 
-## Catatan Penting
+## Hal Yang Perlu Dipahami
 
-- README lama menyebut `grade_one.yml`, tetapi file itu tidak ada di folder ini saat
-  repository discan.
-- Penggabungan nilai dilakukan dengan mengambil skor maksimum tiap bagian dari seluruh
-  host milik peserta. Ini cocok untuk topologi 4 node, tetapi perlu dipahami agar
-  panitia tahu bahwa skor tidak dikunci pada satu node tertentu.
-- Playbook memakai password MariaDB dan SSH yang hard-coded untuk kebutuhan lomba.
-  Ini praktis untuk hari-H, tetapi tetap merupakan risiko bila repo dipublikasikan.
+Ada satu hal penting di playbook ini: nilai peserta dirangkum dari banyak host,
+lalu untuk tiap bagian diambil skor tertinggi dari node-node milik peserta itu.
+
+Artinya sistem ini melihat peserta sebagai satu paket infrastruktur, bukan hanya
+satu server tunggal.
+
+## Cocok Dipelajari Oleh Siswa SMK Karena
+
+Folder ini membantu kamu memahami bahwa administrasi Linux server itu bukan cuma
+soal instalasi paket. Yang benar-benar dinilai biasanya adalah:
+
+- apakah service aktif,
+- apakah konfigurasi disimpan di lokasi yang benar,
+- apakah port yang dibutuhkan benar-benar listening,
+- apakah keamanan dasar sudah diterapkan,
+- apakah layanan saling terhubung dengan benar.
+
+Kalau kamu bisa membaca `grade_all.yml` pelan-pelan, kamu akan mendapat gambaran
+yang cukup jelas tentang standar kerja server Linux yang baik.
+
+## Catatan
+
+- Di dokumentasi lama pernah disebut `grade_one.yml`, tetapi file itu belum ada di
+  folder ini.
+- Beberapa password dan parameter penting masih ditulis langsung di file karena repo
+  ini memang dipakai untuk kebutuhan operasional lomba.

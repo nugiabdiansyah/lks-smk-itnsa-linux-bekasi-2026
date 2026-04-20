@@ -1,10 +1,18 @@
 # LKS SMK ITNSA Kota Bekasi 2026 - Linux Environment
 
-Repository ini berisi bahan soal, sheet penilaian, otomasi provisioning VM, playbook
-autograding, dan playbook pengambilan evidence untuk lomba LKS SMK Tingkat Kota
-Bekasi 2026 bidang IT Network System Administration bagian A Linux Environment.
+Repository ini berisi bahan yang dipakai untuk lomba LKS SMK bidang IT Network
+System Administration bagian Linux Environment. Kalau dilihat secara sederhana,
+repo ini punya tiga fungsi utama:
 
-## Ringkasan Struktur
+- menyimpan soal lomba,
+- membantu panitia menyiapkan server peserta,
+- membantu proses penilaian dan pengambilan bukti konfigurasi.
+
+Kalau kamu siswa yang sedang belajar Linux, repo ini juga menarik karena isinya
+menunjukkan gambaran dunia kerja yang cukup nyata: ada provisioning server,
+otomatisasi dengan Ansible, penilaian layanan Linux, sampai pengumpulan evidence.
+
+## Isi Repository
 
 ```text
 .
@@ -16,82 +24,117 @@ Bekasi 2026 bidang IT Network System Administration bagian A Linux Environment.
 `- terraform/
 ```
 
-## Penjelasan File Dan Folder Di Root
+## Penjelasan File Dan Folder
 
 ### `LKS_ITNSA_Linux_Environment_Bekasi_2026.pdf`
 
-Dokumen soal utama lomba dalam format PDF. Dari metadata file terlihat dokumen ini
-memiliki 7 halaman, dan string internal PDF menunjukkan judul kerja
-`LKS_Linux_Environment_2026 V3`. File ini menjadi acuan requirement teknis yang
-kemudian diperiksa ulang oleh playbook autograding.
+Ini adalah dokumen soal utama lomba. Di dalamnya biasanya ada daftar tugas yang
+harus dikerjakan peserta, misalnya konfigurasi DNS, web server, mail server,
+firewall, backup, atau layanan lain yang umum di Linux server.
+
+Kalau kamu ingin memahami tujuan akhir dari repo ini, mulai dari file ini dulu.
+Soalnya semua proses lain di repo pada dasarnya dibuat untuk mendukung isi soal.
 
 ### `Grading Sheet LKS Linux Environment Bekasi 2026.xlsx`
 
-Workbook Excel untuk rekap nilai akhir. Isi workbook menunjukkan ada 2 sheet:
+File ini adalah lembar penilaian. Hasil penilaian otomatis dari folder
+`autograding/` nantinya bisa dimasukkan ke sini agar nilai peserta lebih mudah
+direkap.
 
-- `Grading Sheet LKS Linux Environ`
-- `Grading`
+Dari isi workbook yang ada, sheet ini sudah menyiapkan kolom untuk:
 
-Shared strings di workbook memperlihatkan kolom nilai yang selaras dengan playbook
-autograding, yaitu:
+- nilai tiap bagian soal,
+- total nilai inti,
+- bonus Ansible,
+- skor akhir.
 
-- `P1.1 (8)` sampai `P5 (5)`
-- `Total Core (100)`
-- `Bonus Ansible (+20)`
-- `Skor Akhir (Max 120)`
-
-File ini dipakai sebagai tujuan import hasil `results/grading_results.csv` dari folder
-`autograding/`.
+Jadi singkatnya, kalau `grade_all.yml` menghasilkan data mentah penilaian,
+file Excel ini dipakai untuk melihat hasil akhirnya dengan lebih rapi.
 
 ### `README.md`
 
-Dokumentasi utama repository. README ini menjelaskan fungsi setiap file/folder utama,
-hubungan antar komponen, dan catatan implementasi yang perlu diketahui panitia.
+File yang sedang kamu baca sekarang. Tujuannya sebagai peta awal supaya pembaca
+tidak langsung bingung melihat banyak file dan folder.
 
 ### `autograding/`
 
-Folder sistem penilaian otomatis berbasis Ansible. Isinya membaca kondisi VM peserta,
-memberi skor per bagian soal, lalu menulis CSV yang bisa diimport ke grading sheet.
+Folder ini berisi sistem penilaian otomatis berbasis Ansible. Tugasnya adalah
+mengecek kondisi server peserta, lalu memberi skor berdasarkan layanan yang
+berhasil dikonfigurasi.
 
-Detail file per file ada di [autograding/README.md](autograding/README.md).
+Kalau kamu baru belajar Linux, folder ini menarik untuk dipelajari karena kamu
+bisa melihat layanan apa saja yang dianggap penting dalam sebuah server Linux dan
+bagaimana layanan itu dicek secara otomatis.
+
+Penjelasan lebih lengkap ada di [autograding/README.md](autograding/README.md).
 
 ### `evidance/`
 
-Folder playbook pengambilan evidence dari semua VM peserta sebelum instance dimatikan
-atau dibersihkan. Folder ini memang bernama `evidance`, tetapi playbook di dalamnya
-membuat output ke subfolder `evidence/`.
+Folder ini dipakai untuk mengambil bukti konfigurasi dari server peserta.
+Misalnya file konfigurasi, log layanan, dump database, status service, rules
+iptables, dan sebagainya.
 
-Detail file per file ada di [evidance/README.md](evidance/README.md).
+Fungsi folder ini penting saat panitia ingin menyimpan jejak hasil pekerjaan
+peserta sebelum VM dimatikan atau dihapus.
+
+Penjelasan lebih lengkap ada di [evidance/README.md](evidance/README.md).
 
 ### `terraform/`
 
-Folder provisioning infrastruktur lomba di Linode. Konfigurasi default membuat 4 VM
-per peserta untuk total 8 peserta.
+Folder ini dipakai untuk menyiapkan VM peserta secara otomatis di Linode.
+Daripada membuat server satu per satu secara manual, panitia bisa memakai
+Terraform untuk membuat banyak VM sekaligus dengan pola yang konsisten.
 
-Detail file per file ada di [terraform/README.md](terraform/README.md).
+Kalau kamu sedang belajar cloud atau infrastruktur, folder ini memberi contoh
+sederhana tentang konsep Infrastructure as Code.
 
-## Hubungan Antar Komponen
+Penjelasan lebih lengkap ada di [terraform/README.md](terraform/README.md).
 
-1. `terraform/` dipakai untuk menyiapkan VM peserta.
-2. Peserta mengerjakan konfigurasi sesuai soal PDF.
-3. `autograding/grade_all.yml` mengecek hasil konfigurasi dan membuat CSV nilai.
-4. CSV diimport ke workbook Excel.
-5. `evidance/collect_evidence.yml` dipakai untuk mengarsipkan bukti konfigurasi dari
-   semua VM sebelum VM dihapus atau direbuild.
+## Alur Kerja Repository Ini
 
-## Temuan Penting Saat Scan Repository
+Supaya lebih mudah dipahami, begini alurnya:
 
-- `autograding/README.md` versi lama menyebut `grade_one.yml`, tetapi file tersebut
-  belum ada di repository saat ini.
-- Folder bernama `evidance/`, sementara output playbook dikirim ke path
-  `evidance/evidence/`. Ini bukan error otomatis, tetapi mudah membingungkan jika
-  tidak didokumentasikan.
-- `inventory.ini` pada folder `autograding/` dan `evidance/` berisi kredensial root
-  dan daftar IP peserta. Karena itu repository ini sebaiknya diperlakukan sebagai
-  dokumen operasional internal, bukan repo publik tanpa sanitasi.
+1. Panitia menyiapkan VM peserta lewat folder `terraform/`.
+2. Peserta mengerjakan soal sesuai dokumen PDF.
+3. Panitia menjalankan `autograding/grade_all.yml` untuk mengecek hasil kerja.
+4. Nilai yang dihasilkan dimasukkan ke grading sheet Excel.
+5. Jika perlu, panitia menjalankan `evidance/collect_evidence.yml` untuk menyimpan
+   bukti konfigurasi dari semua server.
 
-## Saran Penggunaan
+Dengan kata lain, repo ini tidak hanya berisi soal, tapi juga seluruh alur
+pendukung lomba dari awal sampai akhir.
 
-- Mulai dari README tiap folder sebelum menjalankan playbook.
-- Pastikan IP, password, dan jumlah peserta sesuai kondisi hari lomba.
-- Simpan hasil evidence sebelum destroy VM agar ada jejak audit penilaian.
+## Kenapa Repo Ini Cocok Untuk Belajar
+
+Kalau kamu siswa SMK yang sedang belajar Linux, ada beberapa hal bagus yang bisa
+dipelajari dari repo ini:
+
+- kamu bisa melihat layanan Linux yang sering dipakai di dunia server,
+- kamu bisa belajar bahwa administrasi server tidak berhenti di instalasi, tapi
+  juga mencakup verifikasi, dokumentasi, keamanan, dan backup,
+- kamu bisa memahami bahwa otomatisasi seperti Ansible dan Terraform sangat
+  membantu saat jumlah server sudah banyak,
+- kamu bisa belajar membaca kebutuhan sistem dari soal, lalu mencocokkannya dengan
+  cara pengecekan otomatis.
+
+## Catatan Penting
+
+- Folder `evidance/` memang ditulis seperti itu di repository. Namun output
+  playbook-nya dibuat ke subfolder `evidence/`.
+- File `inventory.ini` dan `terraform.tfvars` berisi data sensitif seperti IP dan
+  password. Jadi repo ini lebih cocok dipakai sebagai dokumen operasional internal.
+- Di dokumentasi lama sempat disebut file `grade_one.yml`, tetapi file tersebut
+  memang belum ada di repository saat ini.
+
+## Saran Kalau Ingin Mulai Belajar Dari Repo Ini
+
+Kalau kamu ingin mempelajari repo ini sebagai bahan belajar, urutan yang paling
+enak adalah:
+
+1. baca PDF soal terlebih dahulu,
+2. lihat folder `autograding/` untuk memahami aspek apa saja yang dinilai,
+3. lihat folder `evidance/` untuk memahami bukti apa saja yang penting disimpan,
+4. terakhir pelajari `terraform/` untuk melihat bagaimana server peserta dibuat.
+
+Urutan ini biasanya lebih mudah dipahami daripada langsung membaca semua file
+secara acak.

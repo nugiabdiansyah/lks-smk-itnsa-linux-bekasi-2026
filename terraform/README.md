@@ -1,8 +1,12 @@
 # Terraform Provisioning
 
-Folder ini berisi konfigurasi Terraform untuk membuat VM lomba di Linode. Dari isi
-file saat ini, default deployment adalah 8 peserta dengan 4 VM per peserta, sehingga
-total resource yang dibuat berjumlah 32 instance.
+Folder `terraform/` dipakai untuk membuat VM peserta secara otomatis di Linode.
+Kalau dikerjakan manual, panitia harus membuat banyak server satu per satu. Dengan
+Terraform, proses itu bisa ditulis sebagai kode lalu dijalankan berulang dengan
+hasil yang konsisten.
+
+Kalau kamu siswa yang sedang belajar Linux dan infrastruktur, folder ini cocok
+untuk mengenal konsep Infrastructure as Code.
 
 ## Isi Folder
 
@@ -13,82 +17,115 @@ terraform/
 `- terraform.tfvars
 ```
 
-## Penjelasan Masing-Masing File
+## Gambaran Besarnya
+
+Konfigurasi yang ada sekarang dibuat untuk:
+
+- `8` peserta,
+- masing-masing `4` VM,
+- total `32` VM.
+
+Jadi folder ini pada dasarnya adalah mesin pembuat lab lomba.
+
+## Penjelasan File
 
 ### `main.tf`
 
-File utama Terraform. Fungsinya:
+Ini adalah file utama Terraform. Dari file ini, kita bisa melihat beberapa hal:
 
-- mendeklarasikan provider `linode/linode` versi `~> 2.0`,
-- mendefinisikan variabel input untuk token API, password root, jumlah peserta, dan
-  jumlah VM per peserta,
-- membuat resource `linode_instance` dengan `count` berbasis
-  `jumlah_peserta * vm_per_peserta`,
-- membangun label VM otomatis dengan pola:
-  `peserta-<nomor>-node-<nomor>`,
-- memilih image `linode/debian13`,
-- menempatkan VM di region `id-cgk`,
-- memakai plan `g6-standard-2`,
-- mengeluarkan output `daftar_ip_peserta` berupa mapping label VM ke IP publik.
+- provider yang dipakai adalah `linode/linode`,
+- image default yang dipakai adalah `linode/debian13`,
+- region yang dipakai adalah `id-cgk`,
+- tipe instance yang dipakai adalah `g6-standard-2`,
+- jumlah VM dihitung otomatis dari jumlah peserta dikali jumlah VM per peserta.
 
-Secara operasional, file ini adalah pondasi provisioning seluruh lab lomba.
+Label VM juga dibuat otomatis dengan pola seperti:
+
+```text
+peserta-1-node-1
+peserta-1-node-2
+peserta-1-node-3
+peserta-1-node-4
+```
+
+Pola seperti ini sangat membantu karena nama VM jadi rapi dan mudah dipetakan ke
+peserta.
+
+Selain membuat instance, file ini juga menyiapkan output bernama
+`daftar_ip_peserta` supaya panitia bisa melihat IP publik dari semua VM yang sudah
+dibuat.
 
 ### `terraform.tfvars`
 
-File nilai variabel untuk deployment. Nilai default yang terlihat saat scan:
+File ini berisi nilai variabel yang dipakai oleh `main.tf`. Di sini panitia bisa
+mengubah parameter tanpa perlu menyentuh logika utama Terraform.
 
-- `linode_token = "<set-your-linode-token></set-your-linode-token>"`
-- `vm_root_pass = "LksBekasi2026!"`
-- `jumlah_peserta = 8`
-- `vm_per_peserta = 4`
+Nilai yang saat ini dipakai antara lain:
 
-File ini memudahkan panitia mengubah kapasitas lomba tanpa mengedit `main.tf`.
-Karena mengandung password root bersama, file ini sensitif.
+- token API Linode,
+- password root VM,
+- jumlah peserta,
+- jumlah VM per peserta.
 
-## Cara Pakai
+Secara sederhana, kalau `main.tf` adalah resep, maka `terraform.tfvars` adalah
+bahan-bahan yang dipakai oleh resep itu.
 
-### 1. Isi Token Linode
+## Cara Kerja Singkat
 
-Edit `terraform.tfvars` dan ganti placeholder token:
+Begini alur sederhananya:
 
-```bash
-cd terraform
-sed -n '1,120p' terraform.tfvars
-```
+1. isi token Linode di `terraform.tfvars`,
+2. jalankan `terraform init`,
+3. cek rencana resource dengan `terraform plan`,
+4. kalau sudah benar, jalankan `terraform apply`,
+5. ambil daftar IP hasil pembuatan VM.
 
-### 2. Inisialisasi Terraform
+## Cara Menjalankan
+
+### Inisialisasi
 
 ```bash
 cd terraform
 terraform init
 ```
 
-### 3. Preview Resource
+### Melihat Rencana Pembuatan VM
 
 ```bash
 cd terraform
 terraform plan
 ```
 
-### 4. Buat VM
+### Membuat VM
 
 ```bash
 cd terraform
 terraform apply
 ```
 
-### 5. Ambil Mapping IP
+### Melihat Daftar IP
 
 ```bash
 cd terraform
 terraform output daftar_ip_peserta
 ```
 
-## Catatan Penting
+## Kenapa Folder Ini Menarik Untuk Dipelajari
 
-- Password root saat ini dibuat seragam untuk semua VM. Ini praktis untuk lab lomba,
-  tetapi harus diperlakukan sebagai kredensial internal.
-- Label VM memakai logika berbasis `count.index`, sehingga urutan node konsisten:
-  node-1 sampai node-4 untuk setiap peserta.
-- Jika jumlah peserta berubah, cukup ubah `jumlah_peserta` di `terraform.tfvars`,
-  selama struktur lomba tetap 4 VM per peserta.
+Banyak siswa belajar Linux hanya dari sisi konfigurasi di dalam server. Folder ini
+menunjukkan sisi lain yang tidak kalah penting, yaitu cara menyiapkan server itu
+sendiri secara otomatis.
+
+Dengan mempelajari folder ini, kamu bisa mulai memahami:
+
+- kenapa provisioning manual tidak efisien saat jumlah server banyak,
+- bagaimana infrastruktur bisa ditulis sebagai kode,
+- kenapa penamaan resource yang konsisten sangat penting,
+- bagaimana cloud dan administrasi Linux saling terhubung.
+
+## Catatan
+
+- Password root saat ini dibuat sama untuk semua VM karena kebutuhan operasional
+  lomba. Untuk lingkungan produksi, pola seperti ini tentu perlu ditinjau ulang.
+- Kalau jumlah peserta berubah, panitia cukup mengubah nilainya di
+  `terraform.tfvars` tanpa perlu mengubah struktur besar di `main.tf`.

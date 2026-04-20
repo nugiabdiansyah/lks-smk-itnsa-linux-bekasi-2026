@@ -1,9 +1,11 @@
 # Evidence Collection
 
-Folder ini berisi playbook Ansible untuk mengambil bukti konfigurasi dari setiap VM
-peserta sebelum instance dihentikan, dihapus, atau direbuild. Nama folder saat ini
-ditulis `evidance`, sedangkan output yang dihasilkan playbook akan berada di subfolder
-`evidence/`.
+Folder `evidance/` dipakai untuk mengambil bukti hasil konfigurasi dari server
+peserta. Singkatnya, kalau `autograding/` dipakai untuk memberi nilai, maka folder
+ini dipakai untuk menyimpan “jejak kerja” peserta.
+
+Ini penting karena dalam lomba atau ujian praktik, panitia kadang perlu menyimpan
+bukti konfigurasi sebelum VM dimatikan, dihapus, atau dipakai ulang.
 
 ## Isi Folder
 
@@ -15,51 +17,87 @@ evidance/
 `- collect_evidence.yml
 ```
 
-## Penjelasan Masing-Masing File
+## Kenapa Evidence Itu Penting
+
+Misalnya ada peserta yang nilainya perlu dicek ulang. Akan jauh lebih mudah kalau
+panitia masih punya:
+
+- file konfigurasi,
+- log service,
+- status port,
+- rules firewall,
+- dump database,
+- snapshot kondisi server saat itu.
+
+Itulah fungsi utama folder ini.
+
+## Penjelasan File
 
 ### `ansible.cfg`
 
-Konfigurasi Ansible lokal untuk proses pengambilan evidence. Nilainya hampir sama
-dengan folder `autograding/`, yaitu:
+File ini adalah pengaturan Ansible untuk proses pengambilan evidence. Fungsinya
+mirip dengan `ansible.cfg` di folder `autograding/`, misalnya:
 
-- memakai `inventory.ini` lokal,
-- menonaktifkan host key checking,
-- mengaktifkan SSH pipelining,
-- mengatur `forks = 10` untuk paralelisme.
+- memakai `inventory.ini` sebagai daftar host,
+- mematikan host key checking,
+- mengaktifkan paralelisme,
+- mempercepat koneksi SSH dengan pipelining.
 
 ### `inventory.ini`
 
-Daftar host peserta yang akan diambil evidencenya. Struktur host, variabel, user, dan
-password mengikuti format yang sama dengan inventory autograding. Artinya folder ini
-juga menyimpan data operasional sensitif.
+File ini berisi daftar server peserta yang akan diambil evidencenya. Formatnya
+sama seperti inventory autograding, jadi setiap peserta tetap punya 4 node:
+
+- `gateway`
+- `node1`
+- `node2`
+- `nfs`
+
+Karena file ini juga berisi data login dan alamat IP, sebaiknya tetap dianggap
+sebagai file internal.
 
 ### `collect_evidence.yml`
 
-Playbook utama untuk arsip evidence. Dari isi file, alurnya terdiri dari 3 tahap utama
-yang aktif dan 1 tahap cleanup opsional:
+Ini adalah playbook utama di folder `evidance/`. Tugasnya bukan memberi skor,
+melainkan mengumpulkan data dari server peserta lalu menyimpannya ke mesin lokal.
 
-1. Di setiap host peserta, playbook membuat direktori sementara `/tmp/lks_evidence`.
-2. Berbagai file penting disalin ke direktori tersebut lalu dipaketkan menjadi
-   `tar.gz`.
-3. Arsip di-fetch ke mesin lokal Ansible.
-4. Arsip diekstrak ke folder lokal, lalu dibuat `SUMMARY.txt`.
+Secara umum, playbook ini melakukan langkah berikut:
 
-Jenis evidence yang dikumpulkan oleh playbook:
+1. membuat folder sementara di masing-masing VM,
+2. menyalin file dan data penting ke folder sementara itu,
+3. mengarsipkan hasilnya menjadi `tar.gz`,
+4. mengambil arsip tersebut ke mesin lokal,
+5. mengekstrak hasilnya dan membuat ringkasan.
 
-- konfigurasi layanan: Nginx, HAProxy, BIND9, Postfix, Dovecot, MariaDB, NFS, Samba,
-  vsftpd, `fstab`, `hosts`, `hostname`, dan cron,
-- folder `/etc/ansible` jika ada,
-- sertifikat dan CA terkait `itnsa`, `lks`, atau `bekasi`,
-- dump database `app_db` dan ringkasan grants MariaDB,
+## Data Yang Dikumpulkan
+
+Playbook ini mengumpulkan cukup banyak hal, di antaranya:
+
+- konfigurasi Nginx, HAProxy, BIND9, Postfix, Dovecot, MariaDB, NFS, Samba, dan
+  vsftpd,
+- file `fstab`, `hosts`, `hostname`, dan cron,
+- isi `/etc/ansible` jika ada,
+- sertifikat dan file CA,
+- dump database `app_db`,
 - log layanan dan log SSH,
-- snapshot status service, rules iptables, port listening, hasil pengecekan DNS,
-  ekspor NFS, konfigurasi Samba, daftar user, PAM, timezone, disk, dan mount,
-- file `wp-config.php` WordPress yang disensor untuk password database, plus uji
-  koneksi database jika PHP tersedia.
+- status service,
+- rules iptables,
+- port TCP dan UDP yang sedang listening,
+- data user, grup, PAM, disk, mount, dan timezone,
+- file `wp-config.php` WordPress yang sudah disensor untuk password database.
 
-## Output Yang Dihasilkan
+Jadi hasilnya bukan sekadar salinan beberapa file, tetapi cukup mendekati snapshot
+kondisi server saat proses evidence dijalankan.
 
-Karena playbook memakai `{{ playbook_dir }}/evidence`, hasil akhirnya disimpan di:
+## Hasil Akhir
+
+Output playbook akan disimpan ke:
+
+```text
+evidance/evidence/
+```
+
+Strukturnya kurang lebih seperti ini:
 
 ```text
 evidance/evidence/
@@ -73,7 +111,7 @@ evidance/evidence/
 `- ...
 ```
 
-Setiap role biasanya berisi subfolder seperti:
+Di dalam tiap role biasanya ada folder seperti:
 
 - `configs/`
 - `ansible/`
@@ -83,35 +121,40 @@ Setiap role biasanya berisi subfolder seperti:
 - `status/`
 - `wordpress/`
 
-## Cara Pakai
+## Cara Menjalankan
 
-### 1. Periksa Inventory
-
-```bash
-cd evidance
-sed -n '1,200p' inventory.ini
-```
-
-### 2. Jalankan Pengambilan Evidence
+### Mengambil Evidence Dari Semua Host
 
 ```bash
 cd evidance
 ansible-playbook collect_evidence.yml
 ```
 
-### 3. Baca Ringkasan
+### Melihat Ringkasan Hasil
 
 ```bash
 cd evidance
 cat evidence/SUMMARY.txt
 ```
 
-## Catatan Penting
+## Hal Yang Menarik Untuk Dipelajari
 
-- Folder repository bernama `evidance`, tetapi folder hasil kerja bernama `evidence`.
-  Ini valid, namun mudah membingungkan jika tidak dibaca dokumentasinya.
-- Pada tahap WordPress, password database di `wp-config.php` disensor sebelum disimpan
-  ke arsip lokal.
-- Tahap cleanup file sementara di VM sudah disiapkan di bagian bawah playbook, tetapi
-  masih di-comment. Jika ingin membersihkan `/tmp/lks_evidence` di semua VM, blok itu
-  perlu diaktifkan secara sadar.
+Buat siswa SMK, folder ini bagus untuk dipelajari karena menunjukkan satu hal yang
+sering terlupakan: pekerjaan admin Linux tidak berhenti setelah konfigurasi selesai.
+
+Dalam praktik nyata, kamu juga perlu:
+
+- menyimpan bukti konfigurasi,
+- bisa melakukan audit,
+- bisa menelusuri error dari log,
+- bisa membuktikan bahwa layanan memang pernah berjalan.
+
+Itu sebabnya evidence collection sangat penting dalam lingkungan server.
+
+## Catatan
+
+- Nama folder repository adalah `evidance`, sedangkan folder output yang dibuat oleh
+  playbook bernama `evidence`.
+- Di bagian WordPress, password database disensor sebelum hasilnya disimpan.
+- Blok cleanup file sementara di VM sudah ada, tetapi masih dinonaktifkan dengan
+  komentar. Jadi saat ini playbook fokus pada pengambilan data, bukan pembersihan.
