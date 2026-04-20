@@ -20,7 +20,7 @@ otomatisasi dengan Ansible, penilaian layanan Linux, sampai pengumpulan evidence
 |- Grading Sheet LKS Linux Environment Bekasi 2026.xlsx
 |- README.md
 |- autograding/
-|- evidance/
+|- evidence/
 `- terraform/
 ```
 
@@ -68,7 +68,7 @@ bagaimana layanan itu dicek secara otomatis.
 
 Penjelasan lebih lengkap ada di [autograding/README.md](autograding/README.md).
 
-### `evidance/`
+### `evidence/`
 
 Folder ini dipakai untuk mengambil bukti konfigurasi dari server peserta.
 Misalnya file konfigurasi, log layanan, dump database, status service, rules
@@ -77,7 +77,7 @@ iptables, dan sebagainya.
 Fungsi folder ini penting saat panitia ingin menyimpan jejak hasil pekerjaan
 peserta sebelum VM dimatikan atau dihapus.
 
-Penjelasan lebih lengkap ada di [evidance/README.md](evidance/README.md).
+Penjelasan lebih lengkap ada di [evidence/README.md](evidence/README.md).
 
 ### `terraform/`
 
@@ -98,7 +98,7 @@ Supaya lebih mudah dipahami, begini alurnya:
 2. Peserta mengerjakan soal sesuai dokumen PDF.
 3. Panitia menjalankan `autograding/grade_all.yml` untuk mengecek hasil kerja.
 4. Nilai yang dihasilkan dimasukkan ke grading sheet Excel.
-5. Jika perlu, panitia menjalankan `evidance/collect_evidence.yml` untuk menyimpan
+5. Jika perlu, panitia menjalankan `evidence/collect_evidence.yml` untuk menyimpan
    bukti konfigurasi dari semua server.
 
 Dengan kata lain, repo ini tidak hanya berisi soal, tapi juga seluruh alur
@@ -119,8 +119,8 @@ dipelajari dari repo ini:
 
 ## Catatan Penting
 
-- Folder `evidance/` memang ditulis seperti itu di repository. Namun output
-  playbook-nya dibuat ke subfolder `evidence/`.
+- Folder evidence sekarang memakai nama `evidence/`, jadi penamaan folder README,
+  path contoh, dan perintah terminal sudah disesuaikan dengan nama baru ini.
 - File `inventory.ini` dan `terraform.tfvars` berisi data sensitif seperti IP dan
   password. Jadi repo ini lebih cocok dipakai sebagai dokumen operasional internal.
 - Di dokumentasi lama sempat disebut file `grade_one.yml`, tetapi file tersebut
@@ -133,7 +133,7 @@ enak adalah:
 
 1. baca PDF soal terlebih dahulu,
 2. lihat folder `autograding/` untuk memahami aspek apa saja yang dinilai,
-3. lihat folder `evidance/` untuk memahami bukti apa saja yang penting disimpan,
+3. lihat folder `evidence/` untuk memahami bukti apa saja yang penting disimpan,
 4. terakhir pelajari `terraform/` untuk melihat bagaimana server peserta dibuat.
 
 Urutan ini biasanya lebih mudah dipahami daripada langsung membaca semua file

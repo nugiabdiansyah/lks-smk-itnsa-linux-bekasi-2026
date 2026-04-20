@@ -1,6 +1,6 @@
 # Evidence Collection
 
-Folder `evidance/` dipakai untuk mengambil bukti hasil konfigurasi dari server
+Folder `evidence/` dipakai untuk mengambil bukti hasil konfigurasi dari server
 peserta. Singkatnya, kalau `autograding/` dipakai untuk memberi nilai, maka folder
 ini dipakai untuk menyimpan “jejak kerja” peserta.
 
@@ -10,7 +10,7 @@ bukti konfigurasi sebelum VM dimatikan, dihapus, atau dipakai ulang.
 ## Isi Folder
 
 ```text
-evidance/
+evidence/
 |- README.md
 |- ansible.cfg
 |- inventory.ini
@@ -58,7 +58,7 @@ sebagai file internal.
 
 ### `collect_evidence.yml`
 
-Ini adalah playbook utama di folder `evidance/`. Tugasnya bukan memberi skor,
+Ini adalah playbook utama di folder `evidence/`. Tugasnya bukan memberi skor,
 melainkan mengumpulkan data dari server peserta lalu menyimpannya ke mesin lokal.
 
 Secara umum, playbook ini melakukan langkah berikut:
@@ -94,13 +94,13 @@ kondisi server saat proses evidence dijalankan.
 Output playbook akan disimpan ke:
 
 ```text
-evidance/evidence/
+evidence/evidence/
 ```
 
 Strukturnya kurang lebih seperti ini:
 
 ```text
-evidance/evidence/
+evidence/evidence/
 |- SUMMARY.txt
 |- peserta_1/
 |  |- gateway/
@@ -126,14 +126,14 @@ Di dalam tiap role biasanya ada folder seperti:
 ### Mengambil Evidence Dari Semua Host
 
 ```bash
-cd evidance
+cd evidence
 ansible-playbook collect_evidence.yml
 ```
 
 ### Melihat Ringkasan Hasil
 
 ```bash
-cd evidance
+cd evidence
 cat evidence/SUMMARY.txt
 ```
 
@@ -153,8 +153,8 @@ Itu sebabnya evidence collection sangat penting dalam lingkungan server.
 
 ## Catatan
 
-- Nama folder repository adalah `evidance`, sedangkan folder output yang dibuat oleh
-  playbook bernama `evidence`.
+- Nama folder repository sekarang adalah `evidence`, dan playbook tetap membuat
+  hasilnya di subfolder `evidence/` di dalam folder kerja ini.
 - Di bagian WordPress, password database disensor sebelum hasilnya disimpan.
 - Blok cleanup file sementara di VM sudah ada, tetapi masih dinonaktifkan dengan
   komentar. Jadi saat ini playbook fokus pada pengambilan data, bukan pembersihan.
